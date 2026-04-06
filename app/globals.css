@@ -1,26 +1,67 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  /* ── Brand palette ─────────────────────────────────────── */
+  --color-near-black: #231F20;
+  --color-warm-brown: #7B604B;
+  --color-sage:       #777D64;
+  --color-tan:        #C7AF87;
+  --color-off-white:  #E9E8E0;
+
+  /* ── Typography ────────────────────────────────────────── */
+  --font-sans:    var(--font-lora),        Georgia, serif;
+  --font-display: var(--font-inter),       system-ui, sans-serif;
+  --font-mono:    var(--font-jetbrains),   'Courier New', monospace;
+  --font-callout: var(--font-playfair),    Georgia, serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ── Base ──────────────────────────────────────────────────── */
+body {
+  background-color: var(--color-off-white);
+  color: var(--color-near-black);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+}
+
+/* ── Shared card shadow ────────────────────────────────────── */
+@layer utilities {
+  .shadow-card {
+    box-shadow: 0 2px 4px rgba(35, 31, 32, 0.08);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ── Allocation slider ─────────────────────────────────────── */
+.allocation-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 9999px;
+  outline: none;
+  cursor: pointer;
+  width: 100%;
+  /* background set inline per-value via JS */
+}
+
+.allocation-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-warm-brown);
+  border: 3px solid #fff;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(35, 31, 32, 0.25);
+}
+
+.allocation-slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-warm-brown);
+  border: 3px solid #fff;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(35, 31, 32, 0.25);
 }
