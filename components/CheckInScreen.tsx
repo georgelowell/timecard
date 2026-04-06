@@ -64,8 +64,7 @@ export default function CheckInScreen({ facilityId, facilityName, onCheckedIn }:
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-off-white p-8">
-      <div className="bg-white rounded-lg border border-tan shadow-card p-8 w-full max-w-sm">
+    <div className="bg-white rounded-lg border border-tan shadow-card p-8 w-full">
 
         {/* Header */}
         <div className="text-center mb-8">
@@ -156,7 +155,6 @@ export default function CheckInScreen({ facilityId, facilityName, onCheckedIn }:
           )}
         </div>
 
-      </div>
     </div>
   );
 }
