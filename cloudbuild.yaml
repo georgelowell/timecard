@@ -36,9 +36,9 @@ steps:
       - '--set-env-vars=NEXTAUTH_URL=https://${_SERVICE}-${_RUN_SUFFIX}.${_REGION}.run.app,NEXT_PUBLIC_APP_URL=https://${_SERVICE}-${_RUN_SUFFIX}.${_REGION}.run.app'
 
 substitutions:
-  _REGION: us-central1
-  _REPO: timecard
-  _SERVICE: lowell-timecard
+  _REGION: us-east1
+  _REPO: cloud-run-source-deploy
+  _SERVICE: timecard
   _RUN_SUFFIX: '' # Auto-filled by Cloud Run after first deploy
 
 images:
