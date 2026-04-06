@@ -10,7 +10,7 @@ export async function GET() {
   const snapshot = await adminDb.collection('products').orderBy('createdAt', 'desc').get();
   const products = snapshot.docs
     .map(d => ({ id: d.id, ...d.data() }))
-    .filter((p: { active?: boolean }) => p.active !== false);
+    .filter((p: any) => p.active !== false);
   return NextResponse.json({ products });
 }
 

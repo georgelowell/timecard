@@ -10,7 +10,7 @@ export async function GET() {
   const snapshot = await adminDb.collection('subcategories').orderBy('order').get();
   const subcategories = snapshot.docs
     .map(d => ({ id: d.id, ...d.data() }))
-    .filter((s: { active?: boolean }) => s.active !== false);
+    .filter((s: any) => s.active !== false);
   return NextResponse.json({ subcategories });
 }
 
