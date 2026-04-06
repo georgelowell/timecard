@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { adminDb } from '@/lib/firebase-admin';
 import { GeoLocation } from '@/types';
 
 const TZ = 'America/New_York';
@@ -24,6 +25,25 @@ function formatETTime(isoString: string): string {
   });
 }
 
+/**
+ * Returns the list of manager notification email addresses.
+ * Primary source: Firestore /settings/notifications.managerEmails
+ * Fallback: MANAGER_EMAILS environment variable (comma-separated)
+ */
+export async function getManagerEmails(): Promise<string[]> {
+  try {
+    const snap = await adminDb.collection('settings').doc('notifications').get();
+    if (snap.exists) {
+      const emails: string[] = snap.data()?.managerEmails ?? [];
+      if (emails.length > 0) return emails;
+    }
+  } catch {
+    // Firestore unavailable — fall through to env var
+  }
+
+  return (process.env.MANAGER_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean);
+}
+
 export async function sendRemoteCheckInEmail({
   employeeName,
   employeeEmail,
@@ -39,7 +59,7 @@ export async function sendRemoteCheckInEmail({
   appUrl: string;
   location?: GeoLocation | null;
 }) {
-  const managerEmails = (process.env.MANAGER_EMAILS || '').split(',').filter(Boolean);
+  const managerEmails = await getManagerEmails();
   if (managerEmails.length === 0) return;
 
   const approveUrl = `${appUrl}/api/approve-remote?timecardId=${timecardId}`;
@@ -97,7 +117,7 @@ export async function sendLongShiftEmail({
   employeeId: string;
   appUrl: string;
 }) {
-  const managerEmails = (process.env.MANAGER_EMAILS || '').split(',').filter(Boolean);
+  const managerEmails = await getManagerEmails();
   if (managerEmails.length === 0) return;
 
   const formattedCheckIn = formatETTime(checkInTime);

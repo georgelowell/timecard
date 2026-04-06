@@ -3,6 +3,23 @@
 import { useState, useEffect } from 'react';
 import { Timecard, Allocation, Facility } from '@/types';
 
+/** Returns "YYYY-MM-DD" in ET for the given Date. */
+function toETDateStr(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(d);
+}
+
+/** Returns "YYYY-MM-DD" for Monday of the current ET week. */
+function getWeekStartET(): string {
+  const now = new Date();
+  // Get today's day-of-week in ET (0 = Sun … 6 = Sat)
+  const dowStr = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(now);
+  const dowMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const dow = dowMap[dowStr] ?? 0;
+  const daysFromMonday = (dow + 6) % 7; // Mon=0 … Sun=6
+  const monday = new Date(now.getTime() - daysFromMonday * 86400000);
+  return toETDateStr(monday);
+}
+
 interface FunctionSummary {
   name: string;
   totalHours: number;
@@ -18,15 +35,26 @@ interface Report {
 
 export default function ReportsPage() {
   const [facilities, setFacilities] = useState<Facility[]>([]);
-  const [filters, setFilters] = useState({ startDate: '', endDate: '', facilityId: '', employeeId: '' });
+  const [filters, setFilters] = useState({
+    startDate: getWeekStartET(),
+    endDate: toETDateStr(new Date()),
+    facilityId: '',
+    employeeId: '',
+  });
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
+  const [dateError, setDateError] = useState('');
 
   useEffect(() => {
     fetch('/api/facilities').then(r => r.json()).then(d => setFacilities(d.facilities || []));
   }, []);
 
   async function generateReport() {
+    if (!filters.startDate || !filters.endDate) {
+      setDateError('Please set both a start date and an end date before running a report.');
+      return;
+    }
+    setDateError('');
     setLoading(true);
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([k, v]) => v && params.set(k, v));
@@ -127,13 +155,17 @@ export default function ReportsPage() {
           <div className="flex items-end">
             <button
               onClick={generateReport}
+              disabled={loading}
               className="w-full bg-near-black text-off-white py-2 rounded-lg text-sm font-display font-bold
-                         hover:opacity-90 transition-opacity"
+                         hover:opacity-90 disabled:opacity-50 transition-opacity"
             >
               Run report
             </button>
           </div>
         </div>
+        {dateError && (
+          <p className="text-xs text-red-600 font-body">{dateError}</p>
+        )}
       </div>
 
       {loading && (
