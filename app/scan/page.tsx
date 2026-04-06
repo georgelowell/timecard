@@ -418,7 +418,14 @@ function ScanContent() {
         if (!fData.facility) { setScanState('facilityNotFound'); return; }
         setFacilityName(fData.facility.name);
 
-        const data = await statusRes.json();
+        // Guard against empty or non-JSON bodies (e.g. a 500 with no payload)
+        let data: Record<string, any> = { checkedIn: false };
+        try {
+          const text = await statusRes.text();
+          if (text) data = JSON.parse(text);
+        } catch {
+          console.error('Could not parse /api/checkin response — defaulting to checkIn state');
+        }
 
         // Always store lastCheckout so the status strip can show it
         if (data.lastCheckout) setLastCheckout(data.lastCheckout);

@@ -76,51 +76,59 @@ export async function GET() {
   const { session, error } = await requireAuth();
   if (error) return error;
 
-  // Look for any open shift (checked-in or pending-approval)
-  const openSnap = await adminDb
-    .collection('timecards')
-    .where('employeeId', '==', session!.user.id)
-    .where('status', 'in', ['checked-in', 'pending-approval'])
-    .limit(1)
-    .get();
+  try {
+    // Look for any open shift (checked-in or pending-approval)
+    const openSnap = await adminDb
+      .collection('timecards')
+      .where('employeeId', '==', session!.user.id)
+      .where('status', 'in', ['checked-in', 'pending-approval'])
+      .limit(1)
+      .get();
 
-  if (!openSnap.empty) {
-    const doc = openSnap.docs[0];
-    const timecard = { id: doc.id, ...doc.data() } as Timecard;
+    if (!openSnap.empty) {
+      const doc = openSnap.docs[0];
+      const timecard = { id: doc.id, ...doc.data() } as Timecard;
 
-    if (isTodayET(timecard.checkInTime)) {
-      // Normal: active shift started today
-      return NextResponse.json({ checkedIn: true, timecard });
-    } else {
-      // Open shift from a PREVIOUS day — employee forgot to clock out
+      if (isTodayET(timecard.checkInTime)) {
+        // Normal: active shift started today
+        return NextResponse.json({ checkedIn: true, timecard });
+      } else {
+        // Open shift from a PREVIOUS day — employee forgot to clock out
+        return NextResponse.json({
+          checkedIn: false,
+          openShiftFromPreviousDay: timecard,
+        });
+      }
+    }
+
+    // No open shift — check if they already completed a shift today (Feature 3)
+    const lastCheckoutSnap = await adminDb
+      .collection('timecards')
+      .where('employeeId', '==', session!.user.id)
+      .where('status', '==', 'checked-out')
+      .orderBy('checkOutTime', 'desc')
+      .limit(1)
+      .get();
+
+    if (!lastCheckoutSnap.empty) {
+      const doc = lastCheckoutSnap.docs[0];
+      const data = doc.data();
       return NextResponse.json({
         checkedIn: false,
-        openShiftFromPreviousDay: timecard,
+        lastCheckout: {
+          id: doc.id,
+          checkOutTime: data.checkOutTime as string,
+          checkInTime: data.checkInTime as string,
+        },
       });
     }
+
+    return NextResponse.json({ checkedIn: false });
+  } catch (err) {
+    console.error('[GET /api/checkin]', err);
+    return NextResponse.json(
+      { error: 'Failed to load status', checkedIn: false },
+      { status: 500 },
+    );
   }
-
-  // No open shift — check if they already completed a shift today (Feature 3)
-  const lastCheckoutSnap = await adminDb
-    .collection('timecards')
-    .where('employeeId', '==', session!.user.id)
-    .where('status', '==', 'checked-out')
-    .orderBy('checkOutTime', 'desc')
-    .limit(1)
-    .get();
-
-  if (!lastCheckoutSnap.empty) {
-    const doc = lastCheckoutSnap.docs[0];
-    const data = doc.data();
-    return NextResponse.json({
-      checkedIn: false,
-      lastCheckout: {
-        id: doc.id,
-        checkOutTime: data.checkOutTime as string,
-        checkInTime: data.checkInTime as string,
-      },
-    });
-  }
-
-  return NextResponse.json({ checkedIn: false });
 }
