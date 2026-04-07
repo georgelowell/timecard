@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.11.0] — 2026-04-07
+
+### Added
+
+**Manual Timecard Creation (Manager / Admin)**
+- Managers and admins can now create a complete timecard for an employee who forgot to clock in and out for a full day
+- "Create timecard" button added to the Timecards page header (between the sort toggle and Export CSV)
+- Modal fields: Employee (dropdown of all active users), Facility, Clock-in (ET), Clock-out (ET), optional allocation sliders, required creation note
+- Allocations section is fully optional on creation — if left blank the record shows "Time not logged" in the table as a reminder to fill it in later
+- If allocations are added, the same add-function dropdown + slider logic applies (must sum to 100% before saving)
+- Defaults to today 8 AM → 5 PM ET to speed up the common case
+- New `GET /api/employees` route (manager role, not admin-only) returns `{ id, name, email }` for active users, used to populate the employee dropdown
+- `POST /api/timecards` rewritten: accepts `checkInTimeET`/`checkOutTimeET`, converts via `fromETLocal()`, computes `totalHours`, writes `manualEntry: true`, `status: 'checked-out'`, and records the manager + note for audit trail
+- Created records show the existing amber "Manual entry" badge in the timecards table
+
 ## [1.10.0] — 2026-04-06
 
 ### Added

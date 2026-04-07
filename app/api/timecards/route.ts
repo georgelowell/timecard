@@ -133,32 +133,55 @@ export async function DELETE(request: NextRequest) {
   return NextResponse.json({ success: true });
 }
 
-// POST — legacy manager create/edit (kept for backward compat)
+// POST — manager manually creates a completed timecard for an employee
 export async function POST(request: NextRequest) {
   const { session, error } = await requireAuth('manager');
   if (error) return error;
 
   const body = await request.json();
-  const now = new Date().toISOString();
+  const { employeeId, facilityId, checkInTimeET, checkOutTimeET, createNote, allocations } = body;
 
-  if (body.id) {
-    const ref = adminDb.collection('timecards').doc(body.id);
-    await ref.update({
-      ...body,
-      editedBy: session!.user.id,
-      editedAt: now,
-      editNote: body.editNote || '',
-    });
-    return NextResponse.json({ success: true, id: body.id });
+  if (!employeeId || !facilityId || !checkInTimeET || !checkOutTimeET || !createNote?.trim()) {
+    return NextResponse.json(
+      { error: 'employeeId, facilityId, checkInTimeET, checkOutTimeET, and createNote are required' },
+      { status: 400 },
+    );
   }
 
-  const docRef = await adminDb.collection('timecards').add({
-    ...body,
-    createdAt: now,
-    editedBy: session!.user.id,
-    editedAt: now,
-    editNote: body.editNote || 'Manually created by manager',
-  });
+  const checkInUTC  = fromETLocal(checkInTimeET);
+  const checkOutUTC = fromETLocal(checkOutTimeET);
 
+  if (new Date(checkOutUTC) <= new Date(checkInUTC)) {
+    return NextResponse.json({ error: 'Clock-out must be after clock-in' }, { status: 400 });
+  }
+
+  const totalHours =
+    Math.round(
+      ((new Date(checkOutUTC).getTime() - new Date(checkInUTC).getTime()) / 3600000) * 100,
+    ) / 100;
+
+  const now = new Date().toISOString();
+
+  const timecardData: Record<string, unknown> = {
+    employeeId,
+    facilityId,
+    checkInTime:  checkInUTC,
+    checkOutTime: checkOutUTC,
+    totalHours,
+    remote: false,
+    status: 'checked-out',
+    manualEntry: true,
+    manualEntryNote: createNote.trim(),
+    createdAt: now,
+    editedBy: session!.user.name || session!.user.email || session!.user.id,
+    editedAt: now,
+    editNote: createNote.trim(),
+  };
+
+  if (Array.isArray(allocations) && allocations.length > 0) {
+    timecardData.allocations = allocations;
+  }
+
+  const docRef = await adminDb.collection('timecards').add(timecardData);
   return NextResponse.json({ success: true, id: docRef.id });
 }

@@ -51,6 +51,17 @@ interface EditModal {
   allocations: WorkingAlloc[];
 }
 
+interface CreateModal {
+  employeeId: string;
+  facilityId: string;
+  checkInTimeET: string;
+  checkOutTimeET: string;
+  createNote: string;
+  allocations: WorkingAlloc[];
+}
+
+interface Employee { id: string; name: string; email: string; }
+
 // ── Allocation helpers (same logic as CheckOutScreen) ────────────────────────
 
 function evenSplit(items: WorkingAlloc[]): WorkingAlloc[] {
@@ -81,17 +92,22 @@ function removeAlloc(allocs: WorkingAlloc[], functionId: string): WorkingAlloc[]
 export default function TimecardsPage() {
   const [timecards, setTimecards]   = useState<Timecard[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [employees, setEmployees]   = useState<Employee[]>([]);
   const [taxonomy, setTaxonomy]     = useState<TaxonomyNode[]>([]);
   const [loading, setLoading]       = useState(true);
   const [filters, setFilters]       = useState({ startDate: '', endDate: '', facilityId: '', employeeId: '' });
   const [modal, setModal]           = useState<EditModal | null>(null);
+  const [createModal, setCreateModal] = useState<CreateModal | null>(null);
   const [saving, setSaving]         = useState(false);
   const [saveError, setSaveError]   = useState('');
+  const [createError, setCreateError] = useState('');
+  const [creating, setCreating]     = useState(false);
   const [deleteId, setDeleteId]     = useState<string | null>(null);
   const [deleting, setDeleting]     = useState(false);
   const [sortDir, setSortDir]       = useState<'desc' | 'asc'>('desc');
   // Tracks the add-function select value so we can reset it after selection
   const [addFnId, setAddFnId]       = useState('');
+  const [createAddFnId, setCreateAddFnId] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -104,13 +120,15 @@ export default function TimecardsPage() {
   }, [filters]);
 
   useEffect(() => {
-    // Load facilities, taxonomy, and timecards in parallel
+    // Load facilities, employees, taxonomy, and timecards in parallel
     Promise.all([
       fetch('/api/facilities').then(r => r.json()),
+      fetch('/api/employees').then(r => r.json()),
       fetch('/api/categories').then(r => r.json()),
       fetch('/api/functions').then(r => r.json()),
-    ]).then(([facData, catData, fnData]) => {
+    ]).then(([facData, empData, catData, fnData]) => {
       setFacilities(facData.facilities || []);
+      setEmployees(empData.employees || []);
       const fnList: JobFunction[] = fnData.functions || [];
       const tree: TaxonomyNode[] = (catData.categories || []).map((cat: TaxonomyNode) => ({
         ...cat,
@@ -135,6 +153,54 @@ export default function TimecardsPage() {
     });
     setSaveError('');
     setAddFnId('');
+  }
+
+  function openCreateModal() {
+    // Default clock-in to 8 AM today ET, clock-out to 5 PM today ET
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); // YYYY-MM-DD
+    setCreateModal({
+      employeeId:    '',
+      facilityId:    facilities[0]?.id ?? '',
+      checkInTimeET:  `${today}T08:00`,
+      checkOutTimeET: `${today}T17:00`,
+      createNote:    '',
+      allocations:   [],
+    });
+    setCreateError('');
+    setCreateAddFnId('');
+  }
+
+  async function saveCreate() {
+    if (!createModal) return;
+    if (!createModal.employeeId)       { setCreateError('Select an employee.'); return; }
+    if (!createModal.facilityId)       { setCreateError('Select a facility.'); return; }
+    if (!createModal.checkInTimeET)    { setCreateError('Clock-in time is required.'); return; }
+    if (!createModal.checkOutTimeET)   { setCreateError('Clock-out time is required.'); return; }
+    if (!createModal.createNote.trim()) { setCreateError('Creation note is required.'); return; }
+
+    if (createModal.allocations.length > 0) {
+      const total = createModal.allocations.reduce((s, a) => s + a.percentage, 0);
+      if (Math.abs(total - 100) >= 0.5) {
+        setCreateError(`Allocations must sum to 100% (currently ${Math.round(total)}%).`);
+        return;
+      }
+    }
+
+    setCreating(true);
+    setCreateError('');
+    const res = await fetch('/api/timecards', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(createModal),
+    });
+    setCreating(false);
+    if (!res.ok) {
+      const d = await res.json();
+      setCreateError(d.error || 'Failed to create timecard.');
+      return;
+    }
+    setCreateModal(null);
+    load();
   }
 
   // Called from the add-function <select>
@@ -202,11 +268,15 @@ export default function TimecardsPage() {
 
   const sortedTimecards = sortDir === 'desc' ? timecards : [...timecards].reverse();
 
-  // Derived allocation state for the open modal
+  // Derived allocation state for the edit modal
   const modalAllocTotal = modal?.allocations.reduce((s, a) => s + a.percentage, 0) ?? 0;
   const modalAllocBalanced = Math.abs(modalAllocTotal - 100) < 0.5;
-  // Functions already in the modal's allocation list
   const modalAllocIds = new Set(modal?.allocations.map(a => a.functionId) ?? []);
+
+  // Derived allocation state for the create modal
+  const createAllocTotal = createModal?.allocations.reduce((s, a) => s + a.percentage, 0) ?? 0;
+  const createAllocBalanced = createModal?.allocations.length === 0 || Math.abs(createAllocTotal - 100) < 0.5;
+  const createAllocIds = new Set(createModal?.allocations.map(a => a.functionId) ?? []);
 
   return (
     <div className="space-y-5">
@@ -228,6 +298,16 @@ export default function TimecardsPage() {
               />
             </svg>
             {sortDir === 'desc' ? 'Newest first' : 'Oldest first'}
+          </button>
+          <button
+            onClick={openCreateModal}
+            className="flex items-center gap-2 border border-tan text-sage px-3 py-2 rounded-lg
+                       text-sm font-display font-bold hover:text-near-black transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Create timecard
           </button>
           <button
             onClick={exportCsv}
@@ -531,6 +611,181 @@ export default function TimecardsPage() {
                 className="px-4 py-2 text-sm font-display font-bold bg-warm-brown text-off-white rounded-lg
                            hover:opacity-90 disabled:opacity-40 transition-opacity">
                 {saving ? 'Saving...' : 'Save changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Create Timecard Modal ─────────────────────────────────────────── */}
+      {createModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-near-black/60">
+          <div className="bg-white rounded-xl border border-tan shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
+
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-tan/40 flex items-center justify-between flex-shrink-0">
+              <div>
+                <h2 className="font-display font-black text-near-black text-lg">Create timecard</h2>
+                <p className="text-xs text-sage font-body mt-0.5">Manually record a missed shift</p>
+              </div>
+              <button onClick={() => setCreateModal(null)} className="text-sage hover:text-near-black transition-colors">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Scrollable body */}
+            <div className="px-6 py-5 space-y-5 overflow-y-auto flex-1">
+
+              {/* Employee */}
+              <div>
+                <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
+                  Employee <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={createModal.employeeId}
+                  onChange={e => setCreateModal(m => m ? { ...m, employeeId: e.target.value } : m)}
+                  className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
+                             focus:outline-none focus:ring-2 focus:ring-warm-brown"
+                >
+                  <option value="">Select an employee…</option>
+                  {employees.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.name} — {emp.email}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Facility */}
+              <div>
+                <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
+                  Facility <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={createModal.facilityId}
+                  onChange={e => setCreateModal(m => m ? { ...m, facilityId: e.target.value } : m)}
+                  className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
+                             focus:outline-none focus:ring-2 focus:ring-warm-brown"
+                >
+                  <option value="">Select a facility…</option>
+                  {facilities.map(f => (
+                    <option key={f.id} value={f.id}>{f.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Clock In */}
+              <div>
+                <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
+                  Clock in (Eastern Time) <span className="text-red-500">*</span>
+                </label>
+                <input type="datetime-local" value={createModal.checkInTimeET}
+                  onChange={e => setCreateModal(m => m ? { ...m, checkInTimeET: e.target.value } : m)}
+                  className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-mono
+                             focus:outline-none focus:ring-2 focus:ring-warm-brown" />
+              </div>
+
+              {/* Clock Out */}
+              <div>
+                <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
+                  Clock out (Eastern Time) <span className="text-red-500">*</span>
+                </label>
+                <input type="datetime-local" value={createModal.checkOutTimeET}
+                  onChange={e => setCreateModal(m => m ? { ...m, checkOutTimeET: e.target.value } : m)}
+                  className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-mono
+                             focus:outline-none focus:ring-2 focus:ring-warm-brown" />
+              </div>
+
+              {/* Time Allocation (optional) */}
+              <div>
+                <p className="text-xs font-display font-bold text-sage uppercase tracking-widest mb-2">
+                  Time Allocation <span className="font-body normal-case tracking-normal text-sage/70">(optional)</span>
+                </p>
+
+                {createModal.allocations.length > 0 ? (
+                  <div className="bg-off-white rounded-lg border border-tan">
+                    <AllocationSliders
+                      allocations={createModal.allocations}
+                      onChange={allocs => setCreateModal(m => m ? { ...m, allocations: allocs } : m)}
+                      onRemove={fnId =>
+                        setCreateModal(m => m ? { ...m, allocations: removeAlloc(m.allocations, fnId) } : m)
+                      }
+                    />
+                  </div>
+                ) : (
+                  <p className="text-xs text-sage font-body mb-3">
+                    No functions allocated. Add functions below, or leave blank to fill in later.
+                  </p>
+                )}
+
+                {createModal.allocations.length > 0 && !createAllocBalanced && (
+                  <p className="text-xs text-amber-700 font-body mt-1.5 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                    Allocations must sum to 100% (currently {Math.round(createAllocTotal)}%).
+                  </p>
+                )}
+
+                <div className="mt-3">
+                  <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
+                    Add a function
+                  </label>
+                  <select
+                    value={createAddFnId}
+                    onChange={e => {
+                      const fnId = e.target.value;
+                      if (!fnId) return;
+                      const fn = taxonomy.flatMap(c => c.functions).find(f => f.id === fnId);
+                      if (!fn) return;
+                      setCreateModal(m => m ? { ...m, allocations: addAlloc(m.allocations, { id: fn.id, name: fn.name }) } : m);
+                      setCreateAddFnId('');
+                    }}
+                    className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
+                               focus:outline-none focus:ring-2 focus:ring-warm-brown"
+                  >
+                    <option value="">Select a function…</option>
+                    {taxonomy.map(cat => {
+                      const available = cat.functions.filter(f => !createAllocIds.has(f.id));
+                      if (available.length === 0) return null;
+                      return (
+                        <optgroup key={cat.id} label={cat.name}>
+                          {available.map(f => (
+                            <option key={f.id} value={f.id}>{f.name}</option>
+                          ))}
+                        </optgroup>
+                      );
+                    })}
+                  </select>
+                </div>
+              </div>
+
+              {/* Creation note */}
+              <div>
+                <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
+                  Reason / note <span className="text-red-500">*</span>
+                </label>
+                <input type="text" placeholder="e.g. Employee forgot to clock in and out on Monday"
+                  value={createModal.createNote}
+                  onChange={e => setCreateModal(m => m ? { ...m, createNote: e.target.value } : m)}
+                  className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
+                             focus:outline-none focus:ring-2 focus:ring-warm-brown" />
+              </div>
+
+              {createError && (
+                <p className="text-xs text-red-600 font-body">{createError}</p>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-tan/40 flex gap-3 justify-end flex-shrink-0">
+              <button onClick={() => setCreateModal(null)}
+                className="px-4 py-2 text-sm font-display font-bold border border-tan text-sage rounded-lg
+                           hover:text-near-black transition-colors">
+                Cancel
+              </button>
+              <button onClick={saveCreate}
+                disabled={creating || !createAllocBalanced}
+                className="px-4 py-2 text-sm font-display font-bold bg-warm-brown text-off-white rounded-lg
+                           hover:opacity-90 disabled:opacity-40 transition-opacity">
+                {creating ? 'Creating...' : 'Create timecard'}
               </button>
             </div>
           </div>
