@@ -125,9 +125,11 @@ export async function GET() {
       return NextResponse.json({
         checkedIn: false,
         lastCheckout: {
-          id: doc.id,
-          checkOutTime: data.checkOutTime as string,
-          checkInTime: data.checkInTime as string,
+          id:           doc.id,
+          checkOutTime: data.checkOutTime  as string,
+          checkInTime:  data.checkInTime   as string,
+          totalHours:   data.totalHours    as number | undefined,
+          manualEntry:  data.manualEntry   as boolean | undefined,
         },
       });
     }

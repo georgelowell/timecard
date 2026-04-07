@@ -30,6 +30,15 @@ h1, h2, h3, h4, h5, h6 {
   .shadow-card {
     box-shadow: 0 2px 4px rgba(35, 31, 32, 0.08);
   }
+
+  /* Hide scrollbar visually while keeping it functional */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* ── Allocation slider ─────────────────────────────────────── */

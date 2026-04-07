@@ -7,11 +7,13 @@ interface Props {
   facilityId: string;
   facilityName: string;
   onCheckedIn: (timecard: Timecard) => void;
+  /** Hours already worked in a completed shift today — shows an informational note. */
+  priorHoursToday?: number;
 }
 
 type LocStatus = 'pending' | 'captured' | 'unavailable';
 
-export default function CheckInScreen({ facilityId, facilityName, onCheckedIn }: Props) {
+export default function CheckInScreen({ facilityId, facilityName, onCheckedIn, priorHoursToday }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [locStatus, setLocStatus] = useState<LocStatus>('pending');
@@ -91,6 +93,20 @@ export default function CheckInScreen({ facilityId, facilityName, onCheckedIn }:
             {now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
         </div>
+
+        {/* Prior shift note — shown when starting a second shift today */}
+        {priorHoursToday !== undefined && priorHoursToday > 0 && (
+          <div className="mb-5 px-3 py-2.5 bg-tan/20 border border-tan rounded-lg flex items-center gap-2">
+            <svg className="w-4 h-4 text-warm-brown flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-xs font-body text-warm-brown">
+              Starting a new shift — you already worked{' '}
+              <span className="font-display font-bold">{priorHoursToday.toFixed(1)}h</span> today.
+            </p>
+          </div>
+        )}
 
         {error && (
           <div className="mb-6 p-3 bg-near-black text-off-white rounded-lg text-sm font-body">

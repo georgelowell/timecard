@@ -394,6 +394,8 @@ function ScanContent() {
     id: string;
     checkOutTime: string;
     checkInTime: string;
+    totalHours?: number;
+    manualEntry?: boolean;
   } | null>(null);
   const [facilityName, setFacilityName] = useState('');
 
@@ -436,9 +438,17 @@ function ScanContent() {
         } else if (data.openShiftFromPreviousDay) {
           setCurrentTimecard(data.openShiftFromPreviousDay);
           setScanState('forgotCheckOut');
-        } else if (data.lastCheckout && isTodayET(data.lastCheckout.checkOutTime)) {
+        } else if (
+          data.lastCheckout &&
+          isTodayET(data.lastCheckout.checkOutTime) &&
+          // Only show "forgot to log start time" when the completed shift is a
+          // manual/incomplete entry — not when the employee finished a normal shift.
+          // A normal shift has a real checkInTime and manualEntry !== true.
+          (data.lastCheckout.manualEntry === true || !data.lastCheckout.checkInTime)
+        ) {
           setScanState('alreadyCheckedOut');
         } else {
+          // Normal clock-in — may already have hours from an earlier shift today.
           setScanState('checkIn');
         }
       } catch (err) {
@@ -625,12 +635,20 @@ function ScanContent() {
   }
 
   // ── Normal check-in ────────────────────────────────────────────────────────
+  // If the employee already completed a legitimate shift today, surface those
+  // hours so CheckInScreen can show an informational note.
+  const priorHoursToday =
+    lastCheckout && isTodayET(lastCheckout.checkOutTime) && !lastCheckout.manualEntry
+      ? (lastCheckout.totalHours ?? 0)
+      : undefined;
+
   return (
     <ScanLayout>
       <StatusStrip onClock={false} lastCheckout={lastCheckout} />
       <CheckInScreen
         facilityId={facilityId}
         facilityName={facilityName}
+        priorHoursToday={priorHoursToday}
         onCheckedIn={timecard => {
           setCurrentTimecard(timecard);
           setScanState('checkInDone');
