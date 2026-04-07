@@ -486,7 +486,7 @@ function ScanContent() {
         <p className="text-sage text-sm font-body mb-6">
           {facilityName && <>At {facilityName}. </>}Have a great shift.
         </p>
-        <button onClick={() => window.location.href = '/dashboard'}
+        <button onClick={() => window.location.href = '/dashboard/history'}
           className="w-full bg-warm-brown text-off-white py-3 rounded-lg font-display font-bold hover:opacity-90 transition-opacity">
           View my hours
         </button>
@@ -504,7 +504,7 @@ function ScanContent() {
         </div>
         <h2 className="text-xl font-display font-bold text-near-black mb-2">All done.</h2>
         <p className="text-sage text-sm font-body mb-6">See you next time.</p>
-        <button onClick={() => window.location.href = '/dashboard'}
+        <button onClick={() => window.location.href = '/dashboard/history'}
           className="w-full bg-warm-brown text-off-white py-3 rounded-lg font-display font-bold hover:opacity-90 transition-opacity">
           View my hours
         </button>
@@ -523,7 +523,7 @@ function ScanContent() {
         </div>
         <h2 className="text-xl font-display font-bold text-near-black mb-2">Clocked back in.</h2>
         <p className="text-sage text-sm font-body mb-6">You&apos;re on the clock.</p>
-        <button onClick={() => window.location.href = '/dashboard'}
+        <button onClick={() => window.location.href = '/dashboard/history'}
           className="w-full bg-warm-brown text-off-white py-3 rounded-lg font-display font-bold hover:opacity-90 transition-opacity">
           View my hours
         </button>
@@ -541,7 +541,7 @@ function ScanContent() {
         </div>
         <h2 className="text-xl font-display font-bold text-near-black mb-2">Clock-in saved.</h2>
         <p className="text-sage text-sm font-body mb-6">Your hours have been recorded.</p>
-        <button onClick={() => window.location.href = '/dashboard'}
+        <button onClick={() => window.location.href = '/dashboard/history'}
           className="w-full bg-warm-brown text-off-white py-3 rounded-lg font-display font-bold hover:opacity-90 transition-opacity">
           View my hours
         </button>
@@ -563,7 +563,7 @@ function ScanContent() {
           className="w-full bg-warm-brown text-off-white py-3 rounded-lg font-display font-bold hover:opacity-90 transition-opacity mb-3">
           Clock in now
         </button>
-        <button onClick={() => window.location.href = '/dashboard'}
+        <button onClick={() => window.location.href = '/dashboard/history'}
           className="w-full border border-tan text-sage py-3 rounded-lg font-display font-bold hover:text-near-black transition-colors text-sm">
           View my hours
         </button>
@@ -590,7 +590,7 @@ function ScanContent() {
         <StatusStrip onClock={true} checkInTime={currentTimecard.checkInTime} />
         <AlreadyCheckedInConfirm
           onProceed={() => setScanState('checkOut')}
-          onDismiss={() => window.location.href = '/dashboard'}
+          onDismiss={() => window.location.href = '/dashboard/history'}
         />
       </ScanLayout>
     );
@@ -618,7 +618,7 @@ function ScanContent() {
           lastCheckoutTime={lastCheckout.checkOutTime}
           facilityId={facilityId}
           onManualEntryDone={() => setScanState('manualEntryDone')}
-          onDismiss={() => window.location.href = '/dashboard'}
+          onDismiss={() => window.location.href = '/dashboard/history'}
         />
       </ScanLayout>
     );

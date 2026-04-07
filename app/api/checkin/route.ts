@@ -102,16 +102,25 @@ export async function GET() {
     }
 
     // No open shift — check if they already completed a shift today (Feature 3)
+    // Avoid orderBy on a different field than the where clause (requires a composite index).
+    // Fetch the most recent checked-out timecards and sort in memory instead.
     const lastCheckoutSnap = await adminDb
       .collection('timecards')
       .where('employeeId', '==', session!.user.id)
       .where('status', '==', 'checked-out')
-      .orderBy('checkOutTime', 'desc')
-      .limit(1)
+      .limit(50)
       .get();
 
     if (!lastCheckoutSnap.empty) {
-      const doc = lastCheckoutSnap.docs[0];
+      const sorted = lastCheckoutSnap.docs
+        .filter(d => d.data().checkOutTime)
+        .sort((a, b) => {
+          const aT = a.data().checkOutTime as string;
+          const bT = b.data().checkOutTime as string;
+          return bT.localeCompare(aT);
+        });
+      if (sorted.length === 0) return NextResponse.json({ checkedIn: false });
+      const doc = sorted[0];
       const data = doc.data();
       return NextResponse.json({
         checkedIn: false,

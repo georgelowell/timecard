@@ -3,64 +3,171 @@
 import { useState, useEffect } from 'react';
 import { Timecard } from '@/types';
 
-const PAGE_SIZE = 30;
+// ── Display helpers (Intl only, no library) ──────────────────────────────────
 
-function formatDateET(isoString: string): string {
+function toETDateStr(isoString: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(
+    new Date(isoString),
+  );
+}
+
+function formatDayLabel(dateStr: string): string {
+  // dateStr is "YYYY-MM-DD"
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  const todayStr  = toETDateStr(new Date().toISOString());
+  const yesterdayDate = new Date(Date.now() - 86400000);
+  const yestStr   = toETDateStr(yesterdayDate.toISOString());
+  if (dateStr === todayStr)  return 'Today';
+  if (dateStr === yestStr)   return 'Yesterday';
   return new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(new Date(isoString));
+    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+  }).format(date);
 }
 
 function formatTimeET(isoString: string): string {
   return new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    hour: 'numeric',
-    minute: '2-digit',
+    timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit',
   }).format(new Date(isoString));
 }
 
-interface ActivityEvent {
-  type: 'clock-in' | 'clock-out';
-  time: string;
-  timecardId: string;
-  facilityName?: string;
-  remote?: boolean;
-  manualEntry?: boolean;
-  location?: { lat: number; lng: number } | null;
+// ── Data builders ────────────────────────────────────────────────────────────
+
+interface DaySummary {
+  dateStr: string;   // "YYYY-MM-DD" in ET
+  totalHours: number;
+  shifts: CompletedShift[];
 }
 
-function buildEvents(timecards: Timecard[]): ActivityEvent[] {
-  const events: ActivityEvent[] = [];
+interface CompletedShift {
+  id: string;
+  checkInTime: string;
+  checkOutTime: string;
+  totalHours: number;
+  facilityName?: string;
+  remote: boolean;
+  manualEntry?: boolean;
+  allocations?: { functionName: string; percentage: number }[];
+}
+
+function buildDays(timecards: Timecard[]): DaySummary[] {
+  const dayMap = new Map<string, DaySummary>();
+
   for (const tc of timecards) {
-    events.push({
-      type: 'clock-in',
-      time: tc.checkInTime,
-      timecardId: tc.id,
+    if (tc.status !== 'checked-out' || !tc.checkOutTime) continue;
+    const dateStr = toETDateStr(tc.checkInTime);
+    if (!dayMap.has(dateStr)) {
+      dayMap.set(dateStr, { dateStr, totalHours: 0, shifts: [] });
+    }
+    const day = dayMap.get(dateStr)!;
+    const shift: CompletedShift = {
+      id: tc.id,
+      checkInTime: tc.checkInTime,
+      checkOutTime: tc.checkOutTime,
+      totalHours: tc.totalHours ?? 0,
       facilityName: tc.facilityName,
       remote: tc.remote,
       manualEntry: tc.manualEntry,
-      location: tc.checkInLocation ?? null,
-    });
-    if (tc.checkOutTime) {
-      events.push({
-        type: 'clock-out',
-        time: tc.checkOutTime,
-        timecardId: tc.id,
-        facilityName: tc.facilityName,
-        manualEntry: tc.manualEntry,
-        location: tc.checkOutLocation ?? null,
-      });
-    }
+      allocations: tc.allocations,
+    };
+    day.shifts.push(shift);
+    day.totalHours += tc.totalHours ?? 0;
   }
-  return events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
+  // Sort days newest-first; sort shifts within a day newest-first
+  return [...dayMap.values()]
+    .sort((a, b) => b.dateStr.localeCompare(a.dateStr))
+    .map(day => ({
+      ...day,
+      totalHours: Math.round(day.totalHours * 100) / 100,
+      shifts: day.shifts.sort(
+        (a, b) => new Date(b.checkInTime).getTime() - new Date(a.checkInTime).getTime(),
+      ),
+    }));
 }
 
+// ── Components ───────────────────────────────────────────────────────────────
+
+function ShiftRow({ shift }: { shift: CompletedShift }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasAllocations = shift.allocations && shift.allocations.length > 0;
+
+  return (
+    <div className="border-t border-tan/30 first:border-t-0">
+      <button
+        onClick={() => hasAllocations && setExpanded(e => !e)}
+        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
+          hasAllocations ? 'hover:bg-off-white' : ''
+        }`}
+      >
+        {/* Time range */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-body text-near-black">
+            <span className="font-mono">{formatTimeET(shift.checkInTime)}</span>
+            <span className="text-sage mx-1.5">→</span>
+            <span className="font-mono">{formatTimeET(shift.checkOutTime)}</span>
+          </p>
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            {shift.facilityName && (
+              <p className="text-xs text-sage font-body">{shift.facilityName}</p>
+            )}
+            {shift.remote && (
+              <span className="text-xs px-1.5 py-0.5 bg-tan/30 text-warm-brown rounded font-display font-bold">Remote</span>
+            )}
+            {shift.manualEntry && (
+              <span className="text-xs px-1.5 py-0.5 bg-off-white border border-tan text-sage rounded font-display font-bold">Manual</span>
+            )}
+          </div>
+        </div>
+
+        {/* Hours */}
+        <span className="font-mono font-bold text-warm-brown text-sm flex-shrink-0">
+          {shift.totalHours.toFixed(2)}h
+        </span>
+
+        {/* Expand chevron if allocations exist */}
+        {hasAllocations && (
+          <svg
+            className={`w-4 h-4 text-sage flex-shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        )}
+      </button>
+
+      {/* Allocation breakdown */}
+      {expanded && hasAllocations && (
+        <div className="px-4 pb-3 bg-off-white border-t border-tan/20">
+          <p className="text-xs font-display font-bold text-sage uppercase tracking-widest pt-2.5 mb-2">
+            Time allocation
+          </p>
+          <div className="space-y-1.5">
+            {shift.allocations!.map((alloc, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="flex-1 bg-tan/30 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className="h-1.5 rounded-full"
+                    style={{ width: `${alloc.percentage}%`, backgroundColor: 'var(--color-warm-brown)' }}
+                  />
+                </div>
+                <span className="text-xs font-body text-near-black w-36 truncate">{alloc.functionName}</span>
+                <span className="text-xs font-mono text-warm-brown font-bold w-10 text-right">{Math.round(alloc.percentage)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 30; // days per page
+
 export default function HistoryPage() {
-  const [events, setEvents] = useState<ActivityEvent[]>([]);
+  const [days, setDays] = useState<DaySummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
 
@@ -68,121 +175,64 @@ export default function HistoryPage() {
     fetch('/api/timecards?limit=500')
       .then(r => r.json())
       .then(data => {
-        setEvents(buildEvents(data.timecards || []));
+        setDays(buildDays(data.timecards || []));
         setLoading(false);
       });
   }, []);
 
-  const totalPages = Math.ceil(events.length / PAGE_SIZE);
-  const pageEvents = events.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  // Total hours across all completed shifts
+  const totalHours = Math.round(days.reduce((s, d) => s + d.totalHours, 0) * 100) / 100;
+
+  const totalPages = Math.ceil(days.length / PAGE_SIZE);
+  const pageDays   = days.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl font-display font-black text-near-black">My history</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-display font-black text-near-black">My hours</h1>
+        {!loading && days.length > 0 && (
+          <p className="text-sm text-sage font-body">
+            <span className="font-mono font-bold text-warm-brown text-base">{totalHours}h</span>
+            {' '}total
+          </p>
+        )}
+      </div>
 
       <div className="bg-white rounded-lg border border-tan shadow-card overflow-hidden">
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-8 h-8 border-4 border-warm-brown border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : events.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sage text-sm font-body">No activity yet.</p>
+        ) : days.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sage text-sm font-body">No completed shifts yet.</p>
         ) : (
           <>
-            <div className="divide-y divide-tan/30">
-              {pageEvents.map(ev => (
-                <div
-                  key={`${ev.timecardId}-${ev.type}`}
-                  className="px-4 py-3 flex items-center gap-3"
-                >
-                  {/* Type icon */}
-                  <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                      ev.type === 'clock-in' ? 'bg-sage/20' : 'bg-tan/20'
-                    }`}
-                  >
-                    {ev.type === 'clock-in' ? (
-                      <svg
-                        className="w-4 h-4 text-sage"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M11 16l-4-4m0 0l4-4m-4 4h14"
-                        />
-                      </svg>
-                    ) : (
-                      <svg
-                        className="w-4 h-4 text-warm-brown"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M13 8l4 4m0 0l-4 4m4-4H3"
-                        />
-                      </svg>
-                    )}
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-display font-bold text-near-black text-sm">
-                        {ev.type === 'clock-in' ? 'Clock in' : 'Clock out'}
-                      </span>
-                      {ev.remote && (
-                        <span className="text-xs px-1.5 py-0.5 bg-tan/30 text-warm-brown rounded font-display font-bold">
-                          Remote
-                        </span>
-                      )}
-                      {ev.manualEntry && (
-                        <span className="text-xs px-1.5 py-0.5 bg-off-white border border-tan text-sage rounded font-display font-bold">
-                          Manual
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      <p className="text-xs text-sage font-body">{formatDateET(ev.time)}</p>
-                      {ev.facilityName && (
-                        <span className="text-xs text-sage font-body">· {ev.facilityName}</span>
-                      )}
-                      {ev.location && (
-                        <a
-                          href={`https://maps.google.com/?q=${ev.location.lat},${ev.location.lng}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-warm-brown hover:underline font-body"
-                        >
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-                          </svg>
-                          Map
-                        </a>
-                      )}
-                    </div>
-                  </div>
-
-                  <span className="font-mono text-sm text-near-black flex-shrink-0">
-                    {formatTimeET(ev.time)}
-                  </span>
+            {pageDays.map(day => (
+              <div key={day.dateStr} className="border-b border-tan/40 last:border-b-0">
+                {/* Day header */}
+                <div className="px-4 py-2.5 bg-off-white flex items-center justify-between">
+                  <p className="text-xs font-display font-bold text-near-black uppercase tracking-wide">
+                    {formatDayLabel(day.dateStr)}
+                  </p>
+                  <p className="text-xs font-mono font-bold text-warm-brown">
+                    {day.totalHours.toFixed(2)}h
+                  </p>
                 </div>
-              ))}
-            </div>
+
+                {/* Shifts for this day */}
+                <div>
+                  {day.shifts.map(shift => (
+                    <ShiftRow key={shift.id} shift={shift} />
+                  ))}
+                </div>
+              </div>
+            ))}
 
             {/* Pagination */}
             {totalPages > 1 && (
               <div className="px-4 py-3 border-t border-tan/40 flex items-center justify-between">
                 <span className="text-xs text-sage font-body">
-                  {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, events.length)} of{' '}
-                  {events.length} events
+                  {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, days.length)} of {days.length} days
                 </span>
                 <div className="flex gap-2">
                   <button
