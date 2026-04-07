@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.10.0] — 2026-04-06
+
+### Added
+
+**Taxonomy — Drag-and-Drop Category Reordering**
+- Categories on the Taxonomy Editor can now be reordered by dragging the grip handle (⠿) up or down
+- Installed `@dnd-kit/core`, `@dnd-kit/sortable`, and `@dnd-kit/utilities`
+- `SortableCategoryRow` uses `useSortable` from `@dnd-kit/sortable`; drag handle carries `attributes` and `listeners`; dragging item rendered at 50% opacity with elevated z-index
+- `PointerSensor` with `activationConstraint: { distance: 5 }` prevents accidental drag when clicking rename/deactivate buttons
+- Optimistic reorder: `arrayMove` applied immediately in state; `PUT /api/categories` persists in background; reverts via re-fetch on error
+- Drag hint ("Drag the ⠿ handle to reorder categories") shown when more than one category exists
+- New `PUT /api/categories` endpoint: accepts `{ order: [{id, order}] }` and batch-writes `order` fields via Firestore batch
+
+## [1.9.0] — 2026-04-06
+
+### Fixed
+
+**Scan Page — Second Shift Edge Case**
+- An employee who completed a full shift today (normal clock-in → clock-out) and scanned the QR code again incorrectly saw "Forgot to log your start time?" — fixed
+- `alreadyCheckedOut` condition now also requires `manualEntry === true` OR missing `checkInTime`; normal completed shifts no longer trigger the manual-entry path
+- `lastCheckout` API payload extended to include `totalHours` and `manualEntry` fields (previously only `checkOutTime` was returned)
+- `CheckInScreen` gains optional `priorHoursToday` prop; when set > 0, shows an informational amber note: "Starting a new shift — you already worked Xh today."
+- All five "View my hours" buttons on the scan page corrected from `/dashboard` → `/dashboard/history`
+
+## [1.8.0] — 2026-04-06
+
+### Fixed
+
+**Mobile Navigation — Hamburger Menu**
+- Dashboard navigation tabs overflowed horizontally on portrait mobile; replaced with a hamburger menu for mobile viewports
+- Desktop tab bar hidden on mobile (`hidden md:flex`); hamburger button shown on mobile only (`flex md:hidden`)
+- Mobile dropdown: full-width, slides in below the header; each item `min-h-[44px]` for touch targets
+- Active route shown with warm-brown dot indicator; menu closes on route change or outside pointer-down
+- User info and Sign Out in dropdown footer
+- `overflow-x-hidden` and `min-w-0` added to dashboard layout to eliminate residual horizontal overflow
+- `.scrollbar-hide` utility added to `globals.css` for desktop tab bar
+
+## [1.7.0] — 2026-04-06
+
+### Fixed
+
+**Employee Status Strip — "No previous shifts" Always Shown**
+- The status strip on the employee overview always displayed "No previous shifts on record" even for employees with completed shifts
+- Root cause: `GET /api/checkin` used `.where('status', '==', 'checked-out').orderBy('checkOutTime', 'desc')` which requires a Firestore composite index that did not exist; Firestore threw silently, catch returned `{ checkedIn: false }` with no `lastCheckout`
+- Fixed by removing `.orderBy()` from the query and sorting the `.limit(50)` results in memory by `checkOutTime`
+
+**History Page — Hours by Day**
+- Rewrote `/dashboard/history` to group completed shifts by ET date instead of showing raw clock events
+- Each day card shows total hours for the day; each shift shows in→out time range, facility, badges (Manual/Remote)
+- If a shift has allocations, the card is expandable to show a function breakdown bar
+- Total hours across all fetched records shown in the page header
+- 30 days per page pagination
+
 ## [1.6.0] — 2026-04-06
 
 ### Changed

@@ -34,3 +34,21 @@ export async function PATCH(request: NextRequest) {
   await adminDb.collection('categories').doc(id).update(updates);
   return NextResponse.json({ success: true });
 }
+
+// PUT — bulk reorder: accepts { order: [{id, order}] } and batch-writes order fields
+export async function PUT(request: NextRequest) {
+  const { error } = await requireAuth('manager');
+  if (error) return error;
+
+  const { order } = await request.json() as { order: { id: string; order: number }[] };
+  if (!Array.isArray(order) || order.length === 0) {
+    return NextResponse.json({ error: 'order array is required' }, { status: 400 });
+  }
+
+  const batch = adminDb.batch();
+  for (const item of order) {
+    batch.update(adminDb.collection('categories').doc(item.id), { order: item.order });
+  }
+  await batch.commit();
+  return NextResponse.json({ success: true });
+}
