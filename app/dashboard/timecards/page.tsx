@@ -1,19 +1,17 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Timecard, Facility } from '@/types';
+import { Timecard, Facility, TaxonomyNode, JobFunction, Allocation } from '@/types';
+import AllocationSliders from '@/components/AllocationSliders';
 
-// Convert UTC ISO to ET "YYYY-MM-DDTHH:mm" for datetime-local inputs.
+// ── Date/time helpers ────────────────────────────────────────────────────────
+
 function toETDatetimeLocal(isoString: string): string {
   const d = new Date(isoString);
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
   }).formatToParts(d);
   const get = (t: string) => parts.find(p => p.type === t)?.value ?? '';
   const hr = get('hour') === '24' ? '00' : get('hour');
@@ -23,50 +21,77 @@ function toETDatetimeLocal(isoString: string): string {
 function formatDateET(isoString: string): string {
   return new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
+    month: 'short', day: 'numeric', year: 'numeric',
   }).format(new Date(isoString));
 }
 
 function formatTimeET(isoString: string): string {
   return new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
-    hour: 'numeric',
-    minute: '2-digit',
+    hour: 'numeric', minute: '2-digit',
   }).format(new Date(isoString));
 }
 
 const statusLabel = (status: string) => {
-  if (status === 'checked-in') return 'Clocked in';
-  if (status === 'checked-out') return 'Clocked out';
-  if (status === 'pending-approval') return 'Pending';
+  if (status === 'checked-out')       return 'Clocked out';
+  if (status === 'checked-in')        return 'Clocked in';
+  if (status === 'pending-approval')  return 'Pending';
   return status;
 };
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+type WorkingAlloc = { functionId: string; functionName: string; percentage: number };
 
 interface EditModal {
   tc: Timecard;
   checkInTimeET: string;
   checkOutTimeET: string;
   editNote: string;
+  allocations: WorkingAlloc[];
 }
 
+// ── Allocation helpers (same logic as CheckOutScreen) ────────────────────────
+
+function evenSplit(items: WorkingAlloc[]): WorkingAlloc[] {
+  const even = Math.floor(100 / items.length);
+  const rem  = 100 - even * items.length;
+  return items.map((a, i) => ({ ...a, percentage: i === 0 ? even + rem : even }));
+}
+
+function addAlloc(allocs: WorkingAlloc[], fn: { id: string; name: string }): WorkingAlloc[] {
+  if (allocs.find(a => a.functionId === fn.id)) return allocs;
+  return evenSplit([...allocs, { functionId: fn.id, functionName: fn.name, percentage: 0 }]);
+}
+
+function removeAlloc(allocs: WorkingAlloc[], functionId: string): WorkingAlloc[] {
+  const next = allocs.filter(a => a.functionId !== functionId);
+  if (next.length === 0) return [];
+  const removedPct = allocs.find(a => a.functionId === functionId)?.percentage ?? 0;
+  const total = next.reduce((s, a) => s + a.percentage, 0);
+  if (total === 0) return evenSplit(next);
+  return next.map(a => ({
+    ...a,
+    percentage: Math.round((a.percentage + (removedPct * a.percentage) / total) * 10) / 10,
+  }));
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
+
 export default function TimecardsPage() {
-  const [timecards, setTimecards] = useState<Timecard[]>([]);
+  const [timecards, setTimecards]   = useState<Timecard[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({
-    startDate: '',
-    endDate: '',
-    facilityId: '',
-    employeeId: '',
-  });
-  const [modal, setModal] = useState<EditModal | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState('');
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
+  const [taxonomy, setTaxonomy]     = useState<TaxonomyNode[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [filters, setFilters]       = useState({ startDate: '', endDate: '', facilityId: '', employeeId: '' });
+  const [modal, setModal]           = useState<EditModal | null>(null);
+  const [saving, setSaving]         = useState(false);
+  const [saveError, setSaveError]   = useState('');
+  const [deleteId, setDeleteId]     = useState<string | null>(null);
+  const [deleting, setDeleting]     = useState(false);
+  const [sortDir, setSortDir]       = useState<'desc' | 'asc'>('desc');
+  // Tracks the add-function select value so we can reset it after selection
+  const [addFnId, setAddFnId]       = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -79,20 +104,46 @@ export default function TimecardsPage() {
   }, [filters]);
 
   useEffect(() => {
-    fetch('/api/facilities')
-      .then(r => r.json())
-      .then(d => setFacilities(d.facilities || []));
+    // Load facilities, taxonomy, and timecards in parallel
+    Promise.all([
+      fetch('/api/facilities').then(r => r.json()),
+      fetch('/api/categories').then(r => r.json()),
+      fetch('/api/functions').then(r => r.json()),
+    ]).then(([facData, catData, fnData]) => {
+      setFacilities(facData.facilities || []);
+      const fnList: JobFunction[] = fnData.functions || [];
+      const tree: TaxonomyNode[] = (catData.categories || []).map((cat: TaxonomyNode) => ({
+        ...cat,
+        functions: fnList.filter((f: JobFunction) => f.categoryId === cat.id && f.active !== false),
+      })).filter((cat: TaxonomyNode) => cat.functions.length > 0);
+      setTaxonomy(tree);
+    });
     load();
   }, [load]);
 
   function openModal(tc: Timecard) {
     setModal({
       tc,
-      checkInTimeET: toETDatetimeLocal(tc.checkInTime),
+      checkInTimeET:  toETDatetimeLocal(tc.checkInTime),
       checkOutTimeET: tc.checkOutTime ? toETDatetimeLocal(tc.checkOutTime) : '',
-      editNote: '',
+      editNote:       '',
+      allocations:    (tc.allocations as Allocation[] | undefined ?? []).map(a => ({
+        functionId:   a.functionId,
+        functionName: a.functionName,
+        percentage:   a.percentage,
+      })),
     });
     setSaveError('');
+    setAddFnId('');
+  }
+
+  // Called from the add-function <select>
+  function handleAddFunction(fnId: string) {
+    if (!fnId) return;
+    const fn = taxonomy.flatMap(c => c.functions).find(f => f.id === fnId);
+    if (!fn) return;
+    setModal(m => m ? { ...m, allocations: addAlloc(m.allocations, { id: fn.id, name: fn.name }) } : m);
+    setAddFnId('');
   }
 
   async function confirmDelete() {
@@ -107,14 +158,27 @@ export default function TimecardsPage() {
   async function saveEdit() {
     if (!modal) return;
     if (!modal.editNote.trim()) { setSaveError('Edit note is required.'); return; }
+
+    // Validate allocations if any are set
+    if (modal.allocations.length > 0) {
+      const totalPct = modal.allocations.reduce((s, a) => s + a.percentage, 0);
+      if (Math.abs(totalPct - 100) >= 0.5) {
+        setSaveError(`Allocations must sum to 100% (currently ${Math.round(totalPct)}%).`);
+        return;
+      }
+    }
+
     setSaving(true);
     setSaveError('');
+
     const body: Record<string, unknown> = {
-      id: modal.tc.id,
+      id:           modal.tc.id,
       checkInTimeET: modal.checkInTimeET,
-      editNote: modal.editNote,
+      editNote:     modal.editNote,
     };
     if (modal.checkOutTimeET) body.checkOutTimeET = modal.checkOutTimeET;
+    if (modal.allocations.length > 0)  body.allocations = modal.allocations;
+
     const res = await fetch('/api/timecards', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -136,12 +200,17 @@ export default function TimecardsPage() {
     window.open(`/api/export?${params}`, '_blank');
   };
 
-  // API returns desc by default; only reverse when user wants oldest-first.
-  const sortedTimecards =
-    sortDir === 'desc' ? timecards : [...timecards].reverse();
+  const sortedTimecards = sortDir === 'desc' ? timecards : [...timecards].reverse();
+
+  // Derived allocation state for the open modal
+  const modalAllocTotal = modal?.allocations.reduce((s, a) => s + a.percentage, 0) ?? 0;
+  const modalAllocBalanced = Math.abs(modalAllocTotal - 100) < 0.5;
+  // Functions already in the modal's allocation list
+  const modalAllocIds = new Set(modal?.allocations.map(a => a.functionId) ?? []);
 
   return (
     <div className="space-y-5">
+      {/* Page header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-display font-black text-near-black">Timecards</h1>
         <div className="flex items-center gap-2">
@@ -166,12 +235,8 @@ export default function TimecardsPage() {
                        hover:opacity-90 transition-opacity flex items-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414A1 1 0 0119 9.414V19a2 2 0 01-2 2z"
-              />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414A1 1 0 0119 9.414V19a2 2 0 01-2 2z" />
             </svg>
             Export CSV
           </button>
@@ -180,67 +245,38 @@ export default function TimecardsPage() {
 
       {/* Filters */}
       <div className="bg-white rounded-lg border border-tan shadow-card p-4 grid grid-cols-2 md:grid-cols-5 gap-3">
+        {(['startDate', 'endDate'] as const).map(field => (
+          <div key={field}>
+            <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
+              {field === 'startDate' ? 'Start Date' : 'End Date'}
+            </label>
+            <input type="date" value={filters[field]}
+              onChange={e => setFilters(f => ({ ...f, [field]: e.target.value }))}
+              className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
+                         focus:outline-none focus:ring-2 focus:ring-warm-brown" />
+          </div>
+        ))}
         <div>
-          <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
-            Start Date
-          </label>
-          <input
-            type="date"
-            value={filters.startDate}
-            onChange={e => setFilters(f => ({ ...f, startDate: e.target.value }))}
-            className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
-                       focus:outline-none focus:ring-2 focus:ring-warm-brown"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
-            End Date
-          </label>
-          <input
-            type="date"
-            value={filters.endDate}
-            onChange={e => setFilters(f => ({ ...f, endDate: e.target.value }))}
-            className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
-                       focus:outline-none focus:ring-2 focus:ring-warm-brown"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
-            Facility
-          </label>
-          <select
-            value={filters.facilityId}
+          <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">Facility</label>
+          <select value={filters.facilityId}
             onChange={e => setFilters(f => ({ ...f, facilityId: e.target.value }))}
             className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
-                       focus:outline-none focus:ring-2 focus:ring-warm-brown"
-          >
+                       focus:outline-none focus:ring-2 focus:ring-warm-brown">
             <option value="">All facilities</option>
-            {facilities.map(f => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
+            {facilities.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
-            Employee ID
-          </label>
-          <input
-            type="text"
-            placeholder="Filter by employee"
-            value={filters.employeeId}
+          <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">Employee ID</label>
+          <input type="text" placeholder="Filter by employee" value={filters.employeeId}
             onChange={e => setFilters(f => ({ ...f, employeeId: e.target.value }))}
             className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
-                       focus:outline-none focus:ring-2 focus:ring-warm-brown"
-          />
+                       focus:outline-none focus:ring-2 focus:ring-warm-brown" />
         </div>
         <div className="flex items-end">
-          <button
-            onClick={load}
+          <button onClick={load}
             className="w-full bg-near-black text-off-white py-2 rounded-lg text-sm font-display font-bold
-                       hover:opacity-90 transition-opacity"
-          >
+                       hover:opacity-90 transition-opacity">
             Filter
           </button>
         </div>
@@ -257,21 +293,8 @@ export default function TimecardsPage() {
             <table className="w-full text-sm">
               <thead className="bg-near-black">
                 <tr>
-                  {[
-                    'Employee',
-                    'Date',
-                    'Facility',
-                    'In',
-                    'Out',
-                    'Hours',
-                    'Status / Flags',
-                    'Location',
-                    'Actions',
-                  ].map(h => (
-                    <th
-                      key={h}
-                      className="text-left px-4 py-3 font-display font-bold text-tan text-xs uppercase tracking-wide"
-                    >
+                  {['Employee','Date','Facility','In','Out','Hours','Status / Flags','Location','Actions'].map(h => (
+                    <th key={h} className="text-left px-4 py-3 font-display font-bold text-tan text-xs uppercase tracking-wide">
                       {h}
                     </th>
                   ))}
@@ -280,52 +303,32 @@ export default function TimecardsPage() {
               <tbody>
                 {timecards.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-sage text-sm font-body">
-                      Nothing here yet.
-                    </td>
+                    <td colSpan={9} className="px-4 py-8 text-center text-sage text-sm font-body">Nothing here yet.</td>
                   </tr>
                 )}
                 {sortedTimecards.map((tc, idx) => {
-                  const noAllocations =
-                    tc.status === 'checked-out' && (!tc.allocations || tc.allocations.length === 0);
+                  const noAllocations = tc.status === 'checked-out' && (!tc.allocations || tc.allocations.length === 0);
                   return (
                     <tr key={tc.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-off-white'}>
                       <td className="px-4 py-3">
                         <p className="font-display font-bold text-near-black">{tc.employeeName}</p>
                         <p className="text-xs text-sage font-mono mt-0.5">{tc.employeeEmail}</p>
                       </td>
-                      <td className="px-4 py-3 font-mono text-near-black text-sm">
-                        {formatDateET(tc.checkInTime)}
-                      </td>
+                      <td className="px-4 py-3 font-mono text-near-black text-sm">{formatDateET(tc.checkInTime)}</td>
                       <td className="px-4 py-3 font-body text-near-black">{tc.facilityName}</td>
+                      <td className="px-4 py-3 font-mono text-near-black text-sm">{formatTimeET(tc.checkInTime)}</td>
                       <td className="px-4 py-3 font-mono text-near-black text-sm">
-                        {formatTimeET(tc.checkInTime)}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-near-black text-sm">
-                        {tc.checkOutTime ? (
-                          formatTimeET(tc.checkOutTime)
-                        ) : (
-                          <span className="text-sage">—</span>
-                        )}
+                        {tc.checkOutTime ? formatTimeET(tc.checkOutTime) : <span className="text-sage">—</span>}
                       </td>
                       <td className="px-4 py-3 font-display font-bold text-warm-brown font-mono text-sm">
-                        {tc.totalHours ? (
-                          `${tc.totalHours.toFixed(2)}h`
-                        ) : (
-                          <span className="text-sage font-body font-normal">—</span>
-                        )}
+                        {tc.totalHours ? `${tc.totalHours.toFixed(2)}h` : <span className="text-sage font-body font-normal">—</span>}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded text-xs font-display font-bold ${
-                              tc.status === 'checked-out'
-                                ? 'bg-off-white text-warm-brown border border-tan'
-                                : tc.status === 'checked-in'
-                                ? 'bg-sage text-off-white'
-                                : 'bg-tan text-near-black'
-                            }`}
-                          >
+                          <span className={`inline-block px-2 py-0.5 rounded text-xs font-display font-bold ${
+                            tc.status === 'checked-out' ? 'bg-off-white text-warm-brown border border-tan'
+                            : tc.status === 'checked-in' ? 'bg-sage text-off-white'
+                            : 'bg-tan text-near-black'}`}>
                             {statusLabel(tc.status)}
                           </span>
                           {noAllocations && (
@@ -348,16 +351,18 @@ export default function TimecardsPage() {
                               Edited
                             </span>
                           )}
+                          {tc.allocationsEdited && (
+                            <span className="inline-block px-2 py-0.5 rounded text-xs font-display font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                              Alloc edited
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3">
                         {tc.checkInLocation ? (
-                          <a
-                            href={`https://maps.google.com/?q=${tc.checkInLocation.lat},${tc.checkInLocation.lng}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-warm-brown hover:underline font-body"
-                          >
+                          <a href={`https://maps.google.com/?q=${tc.checkInLocation.lat},${tc.checkInLocation.lng}`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-warm-brown hover:underline font-body">
                             <svg className="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
                               <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
                             </svg>
@@ -369,16 +374,12 @@ export default function TimecardsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-3">
-                          <button
-                            onClick={() => openModal(tc)}
-                            className="text-xs text-sage font-body hover:text-warm-brown transition-colors"
-                          >
+                          <button onClick={() => openModal(tc)}
+                            className="text-xs text-sage font-body hover:text-warm-brown transition-colors">
                             Edit
                           </button>
-                          <button
-                            onClick={() => setDeleteId(tc.id)}
-                            className="text-xs text-sage font-body hover:text-red-600 transition-colors"
-                          >
+                          <button onClick={() => setDeleteId(tc.id)}
+                            className="text-xs text-sage font-body hover:text-red-600 transition-colors">
                             Delete
                           </button>
                         </div>
@@ -392,96 +393,124 @@ export default function TimecardsPage() {
         )}
       </div>
 
-      {/* Edit Modal */}
+      {/* ── Edit Modal ──────────────────────────────────────────────────────── */}
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-near-black/60">
-          <div className="bg-white rounded-xl border border-tan shadow-xl w-full max-w-md">
+          <div className="bg-white rounded-xl border border-tan shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
+
             {/* Header */}
-            <div className="px-6 py-4 border-b border-tan/40 flex items-center justify-between">
+            <div className="px-6 py-4 border-b border-tan/40 flex items-center justify-between flex-shrink-0">
               <div>
                 <h2 className="font-display font-black text-near-black text-lg">Edit timecard</h2>
                 <p className="text-xs text-sage font-body mt-0.5">{modal.tc.employeeName}</p>
               </div>
-              <button
-                onClick={() => setModal(null)}
-                className="text-sage hover:text-near-black transition-colors"
-              >
+              <button onClick={() => setModal(null)} className="text-sage hover:text-near-black transition-colors">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
-            {/* Body */}
-            <div className="px-6 py-5 space-y-4">
+            {/* Scrollable body */}
+            <div className="px-6 py-5 space-y-5 overflow-y-auto flex-1">
+
+              {/* Clock In */}
               <div>
                 <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
                   Clock in (Eastern Time)
                 </label>
-                <input
-                  type="datetime-local"
-                  value={modal.checkInTimeET}
+                <input type="datetime-local" value={modal.checkInTimeET}
                   onChange={e => setModal(m => m ? { ...m, checkInTimeET: e.target.value } : m)}
                   className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-mono
-                             focus:outline-none focus:ring-2 focus:ring-warm-brown"
-                />
+                             focus:outline-none focus:ring-2 focus:ring-warm-brown" />
               </div>
 
+              {/* Clock Out */}
               <div>
                 <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
                   Clock out (Eastern Time)
                 </label>
-                <input
-                  type="datetime-local"
-                  value={modal.checkOutTimeET}
+                <input type="datetime-local" value={modal.checkOutTimeET}
                   onChange={e => setModal(m => m ? { ...m, checkOutTimeET: e.target.value } : m)}
                   className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-mono
-                             focus:outline-none focus:ring-2 focus:ring-warm-brown"
-                />
+                             focus:outline-none focus:ring-2 focus:ring-warm-brown" />
                 <p className="text-xs text-sage font-body mt-1">Leave blank to keep as clocked in.</p>
               </div>
 
-              {/* Show existing allocations read-only */}
-              {modal.tc.allocations && modal.tc.allocations.length > 0 && (
-                <div>
-                  <p className="text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
-                    Current time allocation
-                  </p>
-                  <div className="flex flex-wrap gap-1">
-                    {modal.tc.allocations.map((a, i) => (
-                      <span
-                        key={i}
-                        className="text-xs bg-off-white border border-tan text-warm-brown px-2 py-0.5 rounded font-body"
-                      >
-                        {a.functionName} {a.percentage}%
-                      </span>
-                    ))}
+              {/* ── Time Allocation ───────────────────────────────────────── */}
+              <div>
+                <p className="text-xs font-display font-bold text-sage uppercase tracking-widest mb-2">
+                  Time Allocation
+                </p>
+
+                {modal.allocations.length > 0 ? (
+                  <div className="bg-off-white rounded-lg border border-tan">
+                    <AllocationSliders
+                      allocations={modal.allocations}
+                      onChange={allocs => setModal(m => m ? { ...m, allocations: allocs } : m)}
+                      onRemove={fnId =>
+                        setModal(m => m ? { ...m, allocations: removeAlloc(m.allocations, fnId) } : m)
+                      }
+                    />
                   </div>
+                ) : (
+                  <p className="text-xs text-sage font-body mb-3">
+                    No functions allocated yet. Add functions below to build the allocation.
+                  </p>
+                )}
+
+                {/* Total validation */}
+                {modal.allocations.length > 0 && !modalAllocBalanced && (
+                  <p className="text-xs text-amber-700 font-body mt-1.5 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                    Allocations must sum to 100% (currently {Math.round(modalAllocTotal)}%).
+                  </p>
+                )}
+
+                {/* Add function dropdown */}
+                <div className="mt-3">
+                  <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
+                    Add a function
+                  </label>
+                  <select
+                    value={addFnId}
+                    onChange={e => { handleAddFunction(e.target.value); setAddFnId(''); }}
+                    className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
+                               focus:outline-none focus:ring-2 focus:ring-warm-brown"
+                  >
+                    <option value="">Select a function…</option>
+                    {taxonomy.map(cat => {
+                      const available = cat.functions.filter(f => !modalAllocIds.has(f.id));
+                      if (available.length === 0) return null;
+                      return (
+                        <optgroup key={cat.id} label={cat.name}>
+                          {available.map(f => (
+                            <option key={f.id} value={f.id}>{f.name}</option>
+                          ))}
+                        </optgroup>
+                      );
+                    })}
+                  </select>
                 </div>
-              )}
+              </div>
 
               {/* Edit note */}
               <div>
                 <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
                   Reason for edit <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Employee reported wrong time"
+                <input type="text" placeholder="e.g. Employee reported wrong time"
                   value={modal.editNote}
                   onChange={e => setModal(m => m ? { ...m, editNote: e.target.value } : m)}
                   className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
-                             focus:outline-none focus:ring-2 focus:ring-warm-brown"
-                />
+                             focus:outline-none focus:ring-2 focus:ring-warm-brown" />
               </div>
 
               {/* Previous edit info */}
               {modal.tc.editedBy && (
                 <p className="text-xs text-sage font-body bg-off-white border border-tan rounded-lg px-3 py-2">
-                  Last edited by <span className="font-display font-bold text-near-black">{modal.tc.editedBy}</span>
-                  {modal.tc.editNote && (
-                    <> — &ldquo;{modal.tc.editNote}&rdquo;</>
-                  )}
+                  Last edited by{' '}
+                  <span className="font-display font-bold text-near-black">{modal.tc.editedBy}</span>
+                  {modal.tc.editNote && <> — &ldquo;{modal.tc.editNote}&rdquo;</>}
                 </p>
               )}
 
@@ -491,20 +520,16 @@ export default function TimecardsPage() {
             </div>
 
             {/* Footer */}
-            <div className="px-6 py-4 border-t border-tan/40 flex gap-3 justify-end">
-              <button
-                onClick={() => setModal(null)}
+            <div className="px-6 py-4 border-t border-tan/40 flex gap-3 justify-end flex-shrink-0">
+              <button onClick={() => setModal(null)}
                 className="px-4 py-2 text-sm font-display font-bold border border-tan text-sage rounded-lg
-                           hover:text-near-black transition-colors"
-              >
+                           hover:text-near-black transition-colors">
                 Cancel
               </button>
-              <button
-                onClick={saveEdit}
-                disabled={saving || !modal.editNote.trim()}
+              <button onClick={saveEdit}
+                disabled={saving || !modal.editNote.trim() || (modal.allocations.length > 0 && !modalAllocBalanced)}
                 className="px-4 py-2 text-sm font-display font-bold bg-warm-brown text-off-white rounded-lg
-                           hover:opacity-90 disabled:opacity-40 transition-opacity"
-              >
+                           hover:opacity-90 disabled:opacity-40 transition-opacity">
                 {saving ? 'Saving...' : 'Save changes'}
               </button>
             </div>
@@ -512,7 +537,7 @@ export default function TimecardsPage() {
         </div>
       )}
 
-      {/* Delete confirmation */}
+      {/* ── Delete confirmation ────────────────────────────────────────────── */}
       {deleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-near-black/60">
           <div className="bg-white rounded-xl border border-tan shadow-xl w-full max-w-sm p-6">
@@ -521,19 +546,14 @@ export default function TimecardsPage() {
               This record will be permanently removed from the database. This cannot be undone.
             </p>
             <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setDeleteId(null)}
+              <button onClick={() => setDeleteId(null)}
                 className="px-4 py-2 text-sm font-display font-bold border border-tan text-sage rounded-lg
-                           hover:text-near-black transition-colors"
-              >
+                           hover:text-near-black transition-colors">
                 Cancel
               </button>
-              <button
-                onClick={confirmDelete}
-                disabled={deleting}
+              <button onClick={confirmDelete} disabled={deleting}
                 className="px-4 py-2 text-sm font-display font-bold bg-red-600 text-white rounded-lg
-                           hover:bg-red-700 disabled:opacity-50 transition-colors"
-              >
+                           hover:bg-red-700 disabled:opacity-50 transition-colors">
                 {deleting ? 'Deleting...' : 'Delete'}
               </button>
             </div>

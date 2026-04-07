@@ -44,16 +44,6 @@ export interface JobFunction {
   updatedAt: string;
 }
 
-export interface Product {
-  id: string;
-  name: string;
-  description?: string;
-  active: boolean;
-  functionIds: string[];
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface Allocation {
   functionId: string;
   functionName: string;
@@ -105,6 +95,7 @@ export interface Timecard {
   editedBy?: string;
   editedAt?: string;
   editNote?: string;
+  allocationsEdited?: boolean;
 }
 
 export interface TaxonomyNode extends Category {

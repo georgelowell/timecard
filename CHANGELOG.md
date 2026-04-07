@@ -1,5 +1,55 @@
 # Changelog
 
+## [1.6.0] — 2026-04-06
+
+### Changed
+
+**Removed Product dimension — simplified to Category → Function**
+
+- **`types/index.ts`**: Removed `Product` interface entirely
+- **`app/api/products/route.ts`**: Deleted (GET/POST/PATCH routes no longer exist)
+- **`components/FunctionSelector.tsx`**: Removed "Browse by Product" toggle and product accordion; removed `products` and `ProductWithFunctions` props; component now shows Recent + Browse by Category only; simpler internal state (no `mode`, no `expandedProducts`)
+- **`components/CheckOutScreen.tsx`**: Removed `ProductWithFunctions` interface, `products` state, and `/api/products` fetch from `loadSurveyData`; `FunctionSelector` no longer receives a `products` prop
+- **`app/dashboard/taxonomy/page.tsx`**: Removed Products tab, tab bar, all product state (`addingProduct`, `editingProductId`, `assigningFnsFor`, etc.), all product API calls, and `fnProductMap` product-name badge display; page is now a single-view Category → Function tree with `+ Add Category` always visible
+- **`scripts/seed.ts`**: Removed `PRODUCTS` constant and product seeding block; `--clear` / `--reset` still deletes the `products` collection as a legacy cleanup step; `functionIdMap` removed (was only needed for product assignment)
+- **`app/api/recent-functions/route.ts`**: No changes needed — already product-free
+- TypeScript passes `npx tsc --noEmit` with zero errors
+
+## [1.5.0] — 2026-04-06
+
+### Added
+
+**Timecard Edit Modal — Allocation Editing**
+- Managers and admins can now edit time allocations directly in the timecard edit modal
+- Existing allocations render as interactive sliders (same proportional logic as the checkout survey): move one slider and the others adjust; minimum 5% per function; live percentage display
+- Remove a function from the allocation with the × button — percentage redistributes proportionally
+- "Add a function" dropdown: all active functions grouped by category (optgroup); already-allocated functions are hidden from the list; selecting one adds it at an even split; resets after selection
+- If a timecard has no allocations, the manager can build one from scratch using the add dropdown
+- Save is blocked while allocations sum to less than 100% — amber warning shows the current total
+- The Save button is disabled if allocations exist but are unbalanced
+- `PATCH /api/timecards` now sets `allocationsEdited: true` whenever an allocations array is saved
+- New "Alloc edited" badge (blue) in the timecards table for records where `allocationsEdited` is true
+- Modal is now scrollable (`max-h-[90vh] overflow-y-auto`) to accommodate the extra section
+- `allocationsEdited?: boolean` added to the `Timecard` type
+
+## [1.4.0] — 2026-04-06
+
+### Added
+
+**Analytics Dashboard (`/dashboard/analytics`)**
+- New "Analytics" tab in the manager and admin nav (after Reports, before Taxonomy)
+- Filters: date range (defaults to current ET week), facility, employee; "Run" button with empty-date guard
+- Employee dropdown auto-populates from employees found in the selected period
+- Auto-runs on page load with the default week so data is visible immediately
+- Section 1 — 4 summary cards: Total Hours Worked, Total Shifts, Avg Shift Length, Employees Worked
+- Section 2 — Horizontal bar chart: Hours by Function (Chart.js, brand brown `#7B604B`)
+- Section 3 — Donut chart: Hours by Category (brand palette), legend shows name + percentage
+- Section 4 — Employee Breakdown table: Name, Hours (mono), Top Function, Shifts; alternating row colours; header in `near-black` with tan text
+- Section 5 — Daily Hours Trend line chart (filled area, brand brown)
+- All charts skip empty state and show "No shifts logged for this period." instead
+- New API route `GET /api/analytics`: requires manager role; calculates all five sections in one round-trip; resolves function→category hierarchy from Firestore; generates full date range for daily trend (zero-fills missing days)
+- Installed `chart.js` and `react-chartjs-2`
+
 ## [1.3.0] — 2026-04-06
 
 ### Added

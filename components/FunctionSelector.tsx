@@ -3,12 +3,6 @@
 import { useState } from 'react';
 import { TaxonomyNode, RecentFunction } from '@/types';
 
-interface ProductWithFunctions {
-  id: string;
-  name: string;
-  functions: { id: string; name: string }[];
-}
-
 interface SelectedFunction {
   functionId: string;
   functionName: string;
@@ -17,15 +11,12 @@ interface SelectedFunction {
 
 interface Props {
   taxonomy: TaxonomyNode[];
-  products: ProductWithFunctions[];
   recentFunctions: RecentFunction[];
   lastShift: SelectedFunction[] | null;
   selectedIds: string[];
   onSelect: (fn: { id: string; name: string }) => void;
   onSameAsLastTime: (fns: SelectedFunction[]) => void;
 }
-
-type BrowseMode = 'category' | 'product';
 
 function FunctionRow({ id, name, selectedIds, onSelect }: {
   id: string; name: string; selectedIds: string[];
@@ -52,7 +43,7 @@ function FunctionRow({ id, name, selectedIds, onSelect }: {
   );
 }
 
-// Returns "Yesterday", a date string, or null for older dates
+// Returns "Yesterday", a weekday short name, or null for older dates
 function shiftLabel(isoDate: string): string | null {
   const today = new Date();
   const shift = new Date(isoDate);
@@ -66,20 +57,19 @@ function shiftLabel(isoDate: string): string | null {
 }
 
 export default function FunctionSelector({
-  taxonomy, products, recentFunctions, lastShift,
+  taxonomy, recentFunctions, lastShift,
   selectedIds, onSelect, onSameAsLastTime,
 }: Props) {
-  const [mode, setMode] = useState<BrowseMode>('category');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
-  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
 
-  const toggle = (set: Set<string>, id: string, setter: (s: Set<string>) => void) => {
-    const next = new Set(set);
-    next.has(id) ? next.delete(id) : next.add(id);
-    setter(next);
+  const toggle = (id: string) => {
+    setExpandedCategories(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
   };
 
-  // IDs in the most recent shift, for "Last shift" label on cards
   const lastShiftIds = new Set((lastShift ?? []).map(f => f.functionId));
 
   return (
@@ -150,95 +140,39 @@ export default function FunctionSelector({
         )}
       </div>
 
-      {/* ── Mode toggle ───────────────────────────────────────── */}
-      <div className="px-4 pt-5 pb-2">
-        <div className="inline-flex rounded-lg border border-tan bg-off-white p-0.5 text-sm">
-          {(['category', 'product'] as BrowseMode[]).map(m => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={`px-4 py-1.5 rounded font-display font-bold capitalize transition-colors ${
-                mode === m
-                  ? 'bg-white text-near-black shadow-card'
-                  : 'text-sage hover:text-near-black'
-              }`}
-            >
-              By {m}
-            </button>
-          ))}
-        </div>
+      {/* ── Browse by Category ────────────────────────────────── */}
+      <div className="px-4 pt-5 pb-1">
+        <p className="text-xs font-display font-bold text-sage uppercase tracking-widest">Browse by Category</p>
       </div>
 
-      {/* ── Category browse ───────────────────────────────────── */}
-      {mode === 'category' && (
-        <div className="mt-1">
-          {taxonomy.map(category => (
-            <div key={category.id} className="border-b border-tan/40 last:border-b-0">
-              <button
-                onClick={() => toggle(expandedCategories, category.id, setExpandedCategories)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-white hover:bg-off-white transition-colors text-left"
+      <div className="mt-1">
+        {taxonomy.map(category => (
+          <div key={category.id} className="border-b border-tan/40 last:border-b-0">
+            <button
+              onClick={() => toggle(category.id)}
+              className="w-full flex items-center justify-between px-4 py-3 bg-white hover:bg-off-white transition-colors text-left"
+            >
+              <span className="font-display font-bold text-near-black text-sm">{category.name}</span>
+              <svg
+                className={`w-4 h-4 text-sage transition-transform ${expandedCategories.has(category.id) ? 'rotate-180' : ''}`}
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
               >
-                <span className="font-display font-bold text-near-black text-sm">{category.name}</span>
-                <svg
-                  className={`w-4 h-4 text-sage transition-transform ${expandedCategories.has(category.id) ? 'rotate-180' : ''}`}
-                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {expandedCategories.has(category.id) && (
-                <div className="bg-off-white border-t border-tan/20">
-                  {category.functions.length === 0
-                    ? <p className="px-6 py-2.5 text-sm text-sage font-body italic">Nothing here yet.</p>
-                    : category.functions.map(fn => (
-                        <FunctionRow key={fn.id} id={fn.id} name={fn.name} selectedIds={selectedIds} onSelect={onSelect} />
-                      ))
-                  }
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── Product browse ────────────────────────────────────── */}
-      {mode === 'product' && (
-        <div className="mt-1">
-          {products.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-sage font-body text-center">No products set up yet.</p>
-          ) : (
-            products.map(product => (
-              <div key={product.id} className="border-b border-tan/40 last:border-b-0">
-                <button
-                  onClick={() => toggle(expandedProducts, product.id, setExpandedProducts)}
-                  className="w-full flex items-center justify-between px-4 py-3 bg-white hover:bg-off-white transition-colors text-left"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="font-display font-bold text-near-black text-sm">{product.name}</span>
-                    <span className="text-xs text-sage font-body">{product.functions.length} functions</span>
-                  </div>
-                  <svg
-                    className={`w-4 h-4 text-sage transition-transform ${expandedProducts.has(product.id) ? 'rotate-180' : ''}`}
-                    fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {expandedProducts.has(product.id) && (
-                  <div className="bg-off-white border-t border-tan/20">
-                    {product.functions.length === 0
-                      ? <p className="px-6 py-2.5 text-sm text-sage font-body italic">Nothing here yet.</p>
-                      : product.functions.map(fn => (
-                          <FunctionRow key={fn.id} id={fn.id} name={fn.name} selectedIds={selectedIds} onSelect={onSelect} />
-                        ))
-                    }
-                  </div>
-                )}
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {expandedCategories.has(category.id) && (
+              <div className="bg-off-white border-t border-tan/20">
+                {category.functions.length === 0
+                  ? <p className="px-6 py-2.5 text-sm text-sage font-body italic">Nothing here yet.</p>
+                  : category.functions.map(fn => (
+                      <FunctionRow key={fn.id} id={fn.id} name={fn.name} selectedIds={selectedIds} onSelect={onSelect} />
+                    ))
+                }
               </div>
-            ))
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

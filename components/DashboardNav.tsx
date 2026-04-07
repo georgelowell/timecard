@@ -16,9 +16,10 @@ export default function DashboardNav({ role, userName }: Props) {
   const navItems = [
     { href: '/dashboard',           label: 'Overview',  roles: ['employee', 'manager', 'admin'] },
     { href: '/dashboard/history',   label: 'History',   roles: ['employee'] },
-    { href: '/dashboard/timecards', label: 'Timecards', roles: ['manager', 'admin'] },
-    { href: '/dashboard/reports',   label: 'Reports',   roles: ['manager', 'admin'] },
-    { href: '/dashboard/taxonomy',  label: 'Taxonomy',  roles: ['manager', 'admin'] },
+    { href: '/dashboard/timecards',  label: 'Timecards',  roles: ['manager', 'admin'] },
+    { href: '/dashboard/reports',    label: 'Reports',    roles: ['manager', 'admin'] },
+    { href: '/dashboard/analytics',  label: 'Analytics',  roles: ['manager', 'admin'] },
+    { href: '/dashboard/taxonomy',   label: 'Taxonomy',   roles: ['manager', 'admin'] },
     { href: '/dashboard/users',     label: 'Users',     roles: ['admin'] },
     { href: '/dashboard/qrcodes',   label: 'Locations', roles: ['admin'] },
     { href: '/dashboard/settings',  label: 'Settings',  roles: ['admin'] },

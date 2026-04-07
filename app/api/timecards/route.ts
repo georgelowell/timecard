@@ -110,6 +110,7 @@ export async function PATCH(request: NextRequest) {
 
   if (Array.isArray(allocations) && allocations.length > 0) {
     updates.allocations = allocations;
+    updates.allocationsEdited = true;
   }
 
   await adminDb.collection('timecards').doc(id).update(updates);

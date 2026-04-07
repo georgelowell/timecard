@@ -17,12 +17,6 @@ interface SelectedFunction {
   percentage: number;
 }
 
-interface ProductWithFunctions {
-  id: string;
-  name: string;
-  functions: { id: string; name: string }[];
-}
-
 export default function CheckOutScreen({ timecard, onComplete, onUndo }: Props) {
   // Checkout state
   const [checkoutDone, setCheckoutDone] = useState(false);
@@ -42,11 +36,8 @@ export default function CheckOutScreen({ timecard, onComplete, onUndo }: Props) 
 
   // Survey data
   const [taxonomy, setTaxonomy] = useState<TaxonomyNode[]>([]);
-  const [products, setProducts] = useState<ProductWithFunctions[]>([]);
   const [recentFunctions, setRecentFunctions] = useState<RecentFunction[]>([]);
   const [lastShift, setLastShift] = useState<SelectedFunction[] | null>(null);
-
-  const checkInTime = new Date(timecard.checkInTime);
 
   // On mount: start geolocation, call checkout, load survey data in parallel
   useEffect(() => {
@@ -84,12 +75,11 @@ export default function CheckOutScreen({ timecard, onComplete, onUndo }: Props) 
       }
     }
 
-    // Load survey data
+    // Load survey data (categories, functions, recent)
     async function loadSurveyData() {
-      const [cats, fns, prods, recent] = await Promise.all([
+      const [cats, fns, recent] = await Promise.all([
         fetch('/api/categories').then(r => r.json()),
         fetch('/api/functions').then(r => r.json()),
-        fetch('/api/products').then(r => r.json()),
         fetch('/api/recent-functions').then(r => r.json()),
       ]);
 
@@ -98,18 +88,8 @@ export default function CheckOutScreen({ timecard, onComplete, onUndo }: Props) 
         ...cat,
         functions: fnList.filter((f: JobFunction) => f.categoryId === cat.id),
       }));
-      const productsWithFunctions: ProductWithFunctions[] = (prods.products || []).map(
-        (p: { id: string; name: string; functionIds: string[] }) => ({
-          id: p.id,
-          name: p.name,
-          functions: (p.functionIds || [])
-            .map((fid: string) => fnList.find(f => f.id === fid))
-            .filter(Boolean) as { id: string; name: string }[],
-        })
-      );
 
       setTaxonomy(tree);
-      setProducts(productsWithFunctions);
       setRecentFunctions(recent.recent || []);
       setLastShift(recent.lastShift || null);
     }
@@ -148,10 +128,7 @@ export default function CheckOutScreen({ timecard, onComplete, onUndo }: Props) 
   }, []);
 
   const updatePercentages = useCallback((updated: SelectedFunction[]) => setSelected(updated), []);
-
-  const handleSameAsLastTime = useCallback((fns: SelectedFunction[]) => {
-    setSelected(fns);
-  }, []);
+  const handleSameAsLastTime = useCallback((fns: SelectedFunction[]) => setSelected(fns), []);
 
   const totalPct = selected.reduce((sum, s) => sum + s.percentage, 0);
   const isBalanced = Math.abs(totalPct - 100) < 0.5;
@@ -210,7 +187,7 @@ export default function CheckOutScreen({ timecard, onComplete, onUndo }: Props) 
     return (
       <div className="min-h-screen bg-off-white flex items-center justify-center p-8">
         <div className="bg-white rounded-lg border border-tan shadow-card p-6 w-full max-w-sm text-center">
-          <p className="font-display font-bold text-near-black mb-2">Couldn't clock out</p>
+          <p className="font-display font-bold text-near-black mb-2">Couldn&apos;t clock out</p>
           <p className="text-sage text-sm font-body mb-4">{checkoutError}</p>
           <button
             onClick={() => window.location.reload()}
@@ -285,7 +262,6 @@ export default function CheckOutScreen({ timecard, onComplete, onUndo }: Props) 
       <div className="flex-1 overflow-auto bg-white">
         <FunctionSelector
           taxonomy={taxonomy}
-          products={products}
           recentFunctions={recentFunctions}
           lastShift={lastShift}
           selectedIds={selected.map(s => s.functionId)}
