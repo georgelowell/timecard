@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.13.0] — 2026-04-14
+
+### Changed
+
+**Timecards page**
+- Default start date is now the most recent Monday in ET (matches Reports page behavior)
+- End date picker replaced with a Duration dropdown (1 week / 2 weeks / 4 weeks, default 1 week); end date is derived as `startDate + duration - 1 day`
+- Summary bar added between filters and table showing Total Hours, Shifts, and unique Employees; if any result has an open shift an asterisk and note appear
+
+**Reports page — full redesign as payroll report**
+- End date picker replaced with Duration dropdown (same options as Timecards)
+- Report now calls `GET /api/reports` instead of `/api/timecards`; returns per-employee, per-day breakdown
+- Per-employee cards show each calendar day in the selected period with hours (or "—" if no shift); open shifts show an asterisk
+- Employees ordered alphabetically by last name
+- Summary table at the bottom shows one row per employee (Name | Total Hours); "Copy to clipboard" button copies as tab-separated text for pasting into Excel or payroll systems
+- CSV export generates payroll format with dynamic per-day columns (one row per employee); triggered from report results, not a separate API call
+- Footer note on open-shift asterisks
+
+**New API: `GET /api/reports`**
+- Accepts `startDate`, `endDate`, `facilityId`
+- Queries both `checked-out` and `checked-in` timecards; open shifts include partial hours computed from current time
+- Groups results by employee then by calendar day (ET); returns all days in range including days with no hours
+- Employees sorted by last name; try/catch with Firestore index URL logging
+
 ## [1.12.0] — 2026-04-13
 
 ### Fixed

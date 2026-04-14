@@ -6,6 +6,25 @@ import AllocationSliders from '@/components/AllocationSliders';
 
 // ── Date/time helpers ────────────────────────────────────────────────────────
 
+function toETDateStr(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(d);
+}
+
+function getWeekStartET(): string {
+  const now = new Date();
+  const dowStr = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(now);
+  const dowMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const dow = dowMap[dowStr] ?? 0;
+  const monday = new Date(now.getTime() - ((dow + 6) % 7) * 86400000);
+  return toETDateStr(monday);
+}
+
+/** Adds N days to a 'YYYY-MM-DD' string, returns a new 'YYYY-MM-DD' in ET. */
+function addDaysToDateStr(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return toETDateStr(new Date(y, m - 1, d + days, 12, 0, 0));
+}
+
 function toETDatetimeLocal(isoString: string): string {
   const d = new Date(isoString);
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -102,7 +121,7 @@ export default function TimecardsPage() {
   const [employees, setEmployees]   = useState<Employee[]>([]);
   const [taxonomy, setTaxonomy]     = useState<TaxonomyNode[]>([]);
   const [loading, setLoading]       = useState(true);
-  const [filters, setFilters]       = useState({ startDate: '', endDate: '', facilityId: '', employeeId: '' });
+  const [filters, setFilters]       = useState({ startDate: getWeekStartET(), weeksDuration: 1, facilityId: '', employeeId: '' });
   const [modal, setModal]           = useState<EditModal | null>(null);
   const [createModal, setCreateModal] = useState<CreateModal | null>(null);
   const [saving, setSaving]         = useState(false);
@@ -122,7 +141,12 @@ export default function TimecardsPage() {
     setLoadError('');
     try {
       const params = new URLSearchParams();
-      Object.entries(filters).forEach(([k, v]) => v && params.set(k, v));
+      if (filters.startDate) {
+        params.set('startDate', filters.startDate);
+        params.set('endDate', addDaysToDateStr(filters.startDate, filters.weeksDuration * 7 - 1));
+      }
+      if (filters.facilityId) params.set('facilityId', filters.facilityId);
+      if (filters.employeeId) params.set('employeeId', filters.employeeId);
       const res = await fetch(`/api/timecards?${params}`);
       const data = await res.json();
       if (!res.ok) {
@@ -282,7 +306,12 @@ export default function TimecardsPage() {
 
   const exportCsv = () => {
     const params = new URLSearchParams();
-    Object.entries(filters).forEach(([k, v]) => v && params.set(k, v));
+    if (filters.startDate) {
+      params.set('startDate', filters.startDate);
+      params.set('endDate', addDaysToDateStr(filters.startDate, filters.weeksDuration * 7 - 1));
+    }
+    if (filters.facilityId) params.set('facilityId', filters.facilityId);
+    if (filters.employeeId) params.set('employeeId', filters.employeeId);
     window.open(`/api/export?${params}`, '_blank');
   };
 
@@ -345,17 +374,24 @@ export default function TimecardsPage() {
 
       {/* Filters */}
       <div className="bg-white rounded-lg border border-tan shadow-card p-4 grid grid-cols-2 md:grid-cols-5 gap-3">
-        {(['startDate', 'endDate'] as const).map(field => (
-          <div key={field}>
-            <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">
-              {field === 'startDate' ? 'Start Date' : 'End Date'}
-            </label>
-            <input type="date" value={filters[field]}
-              onChange={e => setFilters(f => ({ ...f, [field]: e.target.value }))}
-              className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
-                         focus:outline-none focus:ring-2 focus:ring-warm-brown" />
-          </div>
-        ))}
+        <div>
+          <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">Start Date</label>
+          <input type="date" value={filters.startDate}
+            onChange={e => setFilters(f => ({ ...f, startDate: e.target.value }))}
+            className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
+                       focus:outline-none focus:ring-2 focus:ring-warm-brown" />
+        </div>
+        <div>
+          <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">Duration</label>
+          <select value={filters.weeksDuration}
+            onChange={e => setFilters(f => ({ ...f, weeksDuration: Number(e.target.value) }))}
+            className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
+                       focus:outline-none focus:ring-2 focus:ring-warm-brown">
+            <option value={1}>1 week</option>
+            <option value={2}>2 weeks</option>
+            <option value={4}>4 weeks</option>
+          </select>
+        </div>
         <div>
           <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">Facility</label>
           <select value={filters.facilityId}
@@ -387,6 +423,37 @@ export default function TimecardsPage() {
           </button>
         </div>
       </div>
+
+      {/* Summary bar */}
+      {!loading && timecards.length > 0 && (() => {
+        const totalHours   = Math.round(timecards.reduce((s, tc) => s + (tc.totalHours || 0), 0) * 100) / 100;
+        const shifts       = timecards.length;
+        const uniqueEmps   = new Set(timecards.map(tc => tc.employeeId)).size;
+        const hasOpenShift = timecards.some(tc => tc.status === 'checked-in' || tc.status === 'pending-approval');
+        return (
+          <div className="bg-white border border-tan rounded-lg shadow-card px-5 py-3 flex flex-wrap items-center gap-6">
+            <div>
+              <p className="text-xs font-body text-sage uppercase tracking-wide mb-0.5">Total Hours</p>
+              <p className="text-2xl font-display font-bold text-near-black font-mono">
+                {totalHours}h{hasOpenShift && <span className="text-warm-brown">*</span>}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-body text-sage uppercase tracking-wide mb-0.5">Shifts</p>
+              <p className="text-2xl font-display font-bold text-near-black font-mono">{shifts}</p>
+            </div>
+            <div>
+              <p className="text-xs font-body text-sage uppercase tracking-wide mb-0.5">Employees</p>
+              <p className="text-2xl font-display font-bold text-near-black font-mono">{uniqueEmps}</p>
+            </div>
+            {hasOpenShift && (
+              <p className="text-xs font-body italic text-warm-brown ml-auto">
+                * Includes open shifts — hours may be incomplete
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       {loadError && (
         <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 font-body">
