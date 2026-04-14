@@ -105,18 +105,31 @@ export default function TimecardsPage() {
   const [deleteId, setDeleteId]     = useState<string | null>(null);
   const [deleting, setDeleting]     = useState(false);
   const [sortDir, setSortDir]       = useState<'desc' | 'asc'>('desc');
+  const [loadError, setLoadError]   = useState('');
   // Tracks the add-function select value so we can reset it after selection
   const [addFnId, setAddFnId]       = useState('');
   const [createAddFnId, setCreateAddFnId] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams();
-    Object.entries(filters).forEach(([k, v]) => v && params.set(k, v));
-    const res = await fetch(`/api/timecards?${params}`);
-    const data = await res.json();
-    setTimecards(data.timecards || []);
-    setLoading(false);
+    setLoadError('');
+    try {
+      const params = new URLSearchParams();
+      Object.entries(filters).forEach(([k, v]) => v && params.set(k, v));
+      const res = await fetch(`/api/timecards?${params}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setLoadError(data.error || 'Failed to load timecards.');
+        setTimecards([]);
+      } else {
+        setTimecards(data.timecards || []);
+      }
+    } catch {
+      setLoadError('Failed to load timecards. Please try again.');
+      setTimecards([]);
+    } finally {
+      setLoading(false);
+    }
   }, [filters]);
 
   useEffect(() => {
@@ -361,6 +374,12 @@ export default function TimecardsPage() {
           </button>
         </div>
       </div>
+
+      {loadError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 font-body">
+          {loadError}
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-white rounded-lg border border-tan shadow-card overflow-hidden">

@@ -9,70 +9,85 @@ export async function GET(request: NextRequest) {
   const { session, error } = await requireAuth();
   if (error) return error;
 
-  const { searchParams } = request.nextUrl;
-  const employeeId = searchParams.get('employeeId');
-  const facilityId = searchParams.get('facilityId');
-  const startDate = searchParams.get('startDate');
-  const endDate = searchParams.get('endDate');
-  const status = searchParams.get('status');
-  const limitParam = parseInt(searchParams.get('limit') || '200', 10);
+  try {
+    const { searchParams } = request.nextUrl;
+    const employeeId = searchParams.get('employeeId');
+    const facilityId = searchParams.get('facilityId');
+    const startDate = searchParams.get('startDate');
+    const endDate = searchParams.get('endDate');
+    const status = searchParams.get('status');
+    const limitParam = parseInt(searchParams.get('limit') || '200', 10);
 
-  const isManager = session!.user.role === 'manager' || session!.user.role === 'admin';
+    const isManager = session!.user.role === 'manager' || session!.user.role === 'admin';
 
-  let query = adminDb.collection('timecards') as FirebaseFirestore.Query;
+    let query = adminDb.collection('timecards') as FirebaseFirestore.Query;
 
-  if (!isManager) {
-    query = query.where('employeeId', '==', session!.user.id);
-  } else if (employeeId) {
-    query = query.where('employeeId', '==', employeeId);
+    if (!isManager) {
+      query = query.where('employeeId', '==', session!.user.id);
+    } else if (employeeId) {
+      query = query.where('employeeId', '==', employeeId);
+    }
+
+    if (facilityId) {
+      query = query.where('facilityId', '==', facilityId);
+    }
+    if (status) {
+      query = query.where('status', '==', status);
+    }
+    if (startDate) {
+      query = query.where('checkInTime', '>=', startDate);
+    }
+    if (endDate) {
+      query = query.where('checkInTime', '<=', endDate + 'T23:59:59Z');
+    }
+
+    // No .orderBy() — sorting in memory avoids composite index requirements.
+    query = query.limit(Math.min(limitParam, 500));
+
+    const snapshot = await query.get();
+
+    const userIds = [...new Set(snapshot.docs.map(d => d.data().employeeId))];
+    const facilityIds = [...new Set(snapshot.docs.map(d => d.data().facilityId))];
+
+    const [usersSnap, facilitiesSnap] = await Promise.all([
+      userIds.length > 0
+        ? adminDb.getAll(...userIds.map(id => adminDb.collection('users').doc(id)))
+        : Promise.resolve([]),
+      facilityIds.length > 0
+        ? adminDb.getAll(...facilityIds.map(id => adminDb.collection('facilities').doc(id)))
+        : Promise.resolve([]),
+    ]);
+
+    const usersMap = new Map(usersSnap.map(d => [d.id, d.data()]));
+    const facilitiesMap = new Map(facilitiesSnap.map(d => [d.id, d.data()]));
+
+    const timecards = snapshot.docs
+      .map(doc => {
+        const data = doc.data() as Omit<Timecard, 'id'>;
+        const user = usersMap.get(data.employeeId);
+        const facility = facilitiesMap.get(data.facilityId);
+        return {
+          id: doc.id,
+          ...data,
+          employeeName: user?.name || '',
+          employeeEmail: user?.email || '',
+          facilityName: facility?.name || '',
+        };
+      })
+      // Sort newest-first in memory instead of relying on Firestore orderBy.
+      .sort((a, b) => b.checkInTime.localeCompare(a.checkInTime));
+
+    return NextResponse.json({ timecards });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Firestore missing-index errors include a direct link to create the index.
+    if (message.includes('requires an index')) {
+      const urlMatch = message.match(/https:\/\/\S+/);
+      console.error('[timecards GET] Missing Firestore index. Create it at:', urlMatch?.[0] ?? '(no URL in error)');
+    }
+    console.error('[timecards GET]', message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  if (facilityId) {
-    query = query.where('facilityId', '==', facilityId);
-  }
-  if (status) {
-    query = query.where('status', '==', status);
-  }
-  if (startDate) {
-    query = query.where('checkInTime', '>=', startDate);
-  }
-  if (endDate) {
-    query = query.where('checkInTime', '<=', endDate + 'T23:59:59Z');
-  }
-
-  query = query.orderBy('checkInTime', 'desc').limit(Math.min(limitParam, 500));
-
-  const snapshot = await query.get();
-
-  const userIds = [...new Set(snapshot.docs.map(d => d.data().employeeId))];
-  const facilityIds = [...new Set(snapshot.docs.map(d => d.data().facilityId))];
-
-  const [usersSnap, facilitiesSnap] = await Promise.all([
-    userIds.length > 0
-      ? adminDb.getAll(...userIds.map(id => adminDb.collection('users').doc(id)))
-      : Promise.resolve([]),
-    facilityIds.length > 0
-      ? adminDb.getAll(...facilityIds.map(id => adminDb.collection('facilities').doc(id)))
-      : Promise.resolve([]),
-  ]);
-
-  const usersMap = new Map(usersSnap.map(d => [d.id, d.data()]));
-  const facilitiesMap = new Map(facilitiesSnap.map(d => [d.id, d.data()]));
-
-  const timecards = snapshot.docs.map(doc => {
-    const data = doc.data() as Omit<Timecard, 'id'>;
-    const user = usersMap.get(data.employeeId);
-    const facility = facilitiesMap.get(data.facilityId);
-    return {
-      id: doc.id,
-      ...data,
-      employeeName: user?.name || '',
-      employeeEmail: user?.email || '',
-      facilityName: facility?.name || '',
-    };
-  });
-
-  return NextResponse.json({ timecards });
 }
 
 // PATCH — manager edits a timecard with ET→UTC conversion

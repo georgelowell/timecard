@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.12.0] — 2026-04-13
+
+### Fixed
+
+**Infinite spinners on Timecards and Reports pages**
+- `GET /api/timecards` now wraps the entire handler body in a `try/catch` and always returns a JSON error response (`{ error: message }` with status 500) on failure — previously an unhandled Firestore exception caused Next.js to return an HTML 500 page, which caused `res.json()` on the frontend to throw and leave `setLoading` stuck at `true`
+- Missing Firestore composite index errors are detected by checking the error message for "requires an index"; the index-creation URL is extracted and logged to Cloud Run logs for easy remediation
+- Removed `.orderBy('checkInTime', 'desc')` from the Firestore query in `GET /api/timecards`; results are now sorted in memory (`.sort((a, b) => b.checkInTime.localeCompare(a.checkInTime))`). This eliminates all composite-index requirements for the filter combinations used by the Timecards and Reports pages
+- `load()` in `timecards/page.tsx` is now wrapped in `try/catch` with a `finally` block guaranteeing `setLoading(false)` is always called; a `loadError` state is displayed as a red banner above the table on failure
+- `generateReport()` in `reports/page.tsx` is now wrapped in `try/catch` with a `finally` block; a `fetchError` state is displayed as a red banner above results on failure; non-ok HTTP responses are also surfaced as errors before any JSON parsing
+- Added `firestore.indexes.json` to the project root defining four composite indexes for the `timecards` collection: `(employeeId, checkInTime)`, `(status, checkInTime)`, `(facilityId, checkInTime)`, `(facilityId, status, checkInTime)` — deploy with `firebase deploy --only firestore:indexes` if you want to restore server-side ordering in future
+
 ## [1.11.0] — 2026-04-07
 
 ### Added

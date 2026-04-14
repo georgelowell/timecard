@@ -44,6 +44,7 @@ export default function ReportsPage() {
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
   const [dateError, setDateError] = useState('');
+  const [fetchError, setFetchError] = useState('');
 
   useEffect(() => {
     fetch('/api/facilities').then(r => r.json()).then(d => setFacilities(d.facilities || []));
@@ -55,42 +56,54 @@ export default function ReportsPage() {
       return;
     }
     setDateError('');
+    setFetchError('');
     setLoading(true);
-    const params = new URLSearchParams();
-    Object.entries(filters).forEach(([k, v]) => v && params.set(k, v));
-    params.set('status', 'checked-out');
+    try {
+      const params = new URLSearchParams();
+      Object.entries(filters).forEach(([k, v]) => v && params.set(k, v));
+      params.set('status', 'checked-out');
 
-    const res = await fetch(`/api/timecards?${params}`);
-    const data = await res.json();
-    const timecards: Timecard[] = data.timecards || [];
+      const res = await fetch(`/api/timecards?${params}`);
+      const data = await res.json();
 
-    const totalHours = timecards.reduce((sum, tc) => sum + (tc.totalHours || 0), 0);
-    const uniqueEmployees = new Set(timecards.map(tc => tc.employeeId)).size;
+      if (!res.ok) {
+        setFetchError(data.error || 'Failed to load report data.');
+        return;
+      }
 
-    const fnMap = new Map<string, { name: string; hours: number }>();
-    for (const tc of timecards) {
-      if (!tc.allocations) continue;
-      for (const alloc of tc.allocations as Allocation[]) {
-        const hours = (tc.totalHours || 0) * (alloc.percentage / 100);
-        const existing = fnMap.get(alloc.functionId);
-        if (existing) {
-          existing.hours += hours;
-        } else {
-          fnMap.set(alloc.functionId, { name: alloc.functionName, hours });
+      const timecards: Timecard[] = data.timecards || [];
+
+      const totalHours = timecards.reduce((sum, tc) => sum + (tc.totalHours || 0), 0);
+      const uniqueEmployees = new Set(timecards.map(tc => tc.employeeId)).size;
+
+      const fnMap = new Map<string, { name: string; hours: number }>();
+      for (const tc of timecards) {
+        if (!tc.allocations) continue;
+        for (const alloc of tc.allocations as Allocation[]) {
+          const hours = (tc.totalHours || 0) * (alloc.percentage / 100);
+          const existing = fnMap.get(alloc.functionId);
+          if (existing) {
+            existing.hours += hours;
+          } else {
+            fnMap.set(alloc.functionId, { name: alloc.functionName, hours });
+          }
         }
       }
+
+      const functionBreakdown = Array.from(fnMap.entries())
+        .map(([, v]) => ({
+          name: v.name,
+          totalHours: Math.round(v.hours * 100) / 100,
+          percentage: totalHours > 0 ? Math.round((v.hours / totalHours) * 100 * 10) / 10 : 0,
+        }))
+        .sort((a, b) => b.totalHours - a.totalHours);
+
+      setReport({ totalHours: Math.round(totalHours * 100) / 100, totalShifts: timecards.length, uniqueEmployees, functionBreakdown });
+    } catch {
+      setFetchError('Failed to load report data. Please try again.');
+    } finally {
+      setLoading(false);
     }
-
-    const functionBreakdown = Array.from(fnMap.entries())
-      .map(([, v]) => ({
-        name: v.name,
-        totalHours: Math.round(v.hours * 100) / 100,
-        percentage: totalHours > 0 ? Math.round((v.hours / totalHours) * 100 * 10) / 10 : 0,
-      }))
-      .sort((a, b) => b.totalHours - a.totalHours);
-
-    setReport({ totalHours: Math.round(totalHours * 100) / 100, totalShifts: timecards.length, uniqueEmployees, functionBreakdown });
-    setLoading(false);
   }
 
   const exportCsv = () => {
@@ -167,6 +180,12 @@ export default function ReportsPage() {
           <p className="text-xs text-red-600 font-body">{dateError}</p>
         )}
       </div>
+
+      {fetchError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 font-body">
+          {fetchError}
+        </div>
+      )}
 
       {loading && (
         <div className="flex justify-center py-12">
