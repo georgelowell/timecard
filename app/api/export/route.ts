@@ -22,49 +22,69 @@ export async function GET(request: NextRequest) {
   const employeeId = searchParams.get('employeeId');
   const facilityId = searchParams.get('facilityId');
 
-  let query = adminDb
-    .collection('timecards')
-    .where('status', '==', 'checked-out') as FirebaseFirestore.Query;
+  try {
+    let query = adminDb
+      .collection('timecards')
+      .where('status', '==', 'checked-out') as FirebaseFirestore.Query;
 
-  if (employeeId) query = query.where('employeeId', '==', employeeId);
-  if (facilityId) query = query.where('facilityId', '==', facilityId);
-  if (startDate) query = query.where('checkInTime', '>=', startDate);
-  if (endDate) query = query.where('checkInTime', '<=', endDate + 'T23:59:59Z');
+    if (employeeId) query = query.where('employeeId', '==', employeeId);
+    if (facilityId) query = query.where('facilityId', '==', facilityId);
+    if (startDate) query = query.where('checkInTime', '>=', startDate);
+    if (endDate) query = query.where('checkInTime', '<=', endDate + 'T23:59:59Z');
 
-  query = query.orderBy('checkInTime', 'desc').limit(1000);
+    // No .orderBy() — sort in memory to avoid composite index requirements.
+    query = query.limit(1000);
 
-  const snapshot = await query.get();
+    const snapshot = await query.get();
 
-  const userIds = [...new Set(snapshot.docs.map(d => d.data().employeeId))];
-  const facilityIds = [...new Set(snapshot.docs.map(d => d.data().facilityId))];
+    const userIds = [...new Set(snapshot.docs.map(d => d.data().employeeId))];
+    const facilityIds = [...new Set(snapshot.docs.map(d => d.data().facilityId))];
 
-  const [usersSnap, facilitiesSnap] = await Promise.all([
-    userIds.length > 0
-      ? adminDb.getAll(...userIds.map(id => adminDb.collection('users').doc(id)))
-      : Promise.resolve([]),
-    facilityIds.length > 0
-      ? adminDb.getAll(...facilityIds.map(id => adminDb.collection('facilities').doc(id)))
-      : Promise.resolve([]),
-  ]);
+    const [usersSnap, facilitiesSnap] = await Promise.all([
+      userIds.length > 0
+        ? adminDb.getAll(...userIds.map(id => adminDb.collection('users').doc(id)))
+        : Promise.resolve([]),
+      facilityIds.length > 0
+        ? adminDb.getAll(...facilityIds.map(id => adminDb.collection('facilities').doc(id)))
+        : Promise.resolve([]),
+    ]);
 
-  const usersMap = new Map(usersSnap.map(d => [d.id, d.data()]));
-  const facilitiesMap = new Map(facilitiesSnap.map(d => [d.id, d.data()]));
+    const usersMap = new Map(usersSnap.map(d => [d.id, d.data()]));
+    const facilitiesMap = new Map(facilitiesSnap.map(d => [d.id, d.data()]));
 
-  const rows: string[] = [
-    ['Date', 'Employee Name', 'Employee Email', 'Facility', 'Check In', 'Check Out',
-      'Total Hours', 'Remote', 'Function', 'Percentage'].join(','),
-  ];
+    const docs = [...snapshot.docs].sort((a, b) =>
+      b.data().checkInTime.localeCompare(a.data().checkInTime)
+    );
 
-  for (const doc of snapshot.docs) {
-    const tc = doc.data() as Timecard;
-    const user = usersMap.get(tc.employeeId);
-    const facility = facilitiesMap.get(tc.facilityId);
-    const date = new Date(tc.checkInTime).toLocaleDateString('en-US');
-    const checkIn = new Date(tc.checkInTime).toLocaleTimeString('en-US');
-    const checkOut = tc.checkOutTime ? new Date(tc.checkOutTime).toLocaleTimeString('en-US') : '';
+    const rows: string[] = [
+      ['Date', 'Employee Name', 'Employee Email', 'Facility', 'Check In', 'Check Out',
+        'Total Hours', 'Remote', 'Function', 'Percentage'].join(','),
+    ];
 
-    if (tc.allocations && tc.allocations.length > 0) {
-      for (const alloc of tc.allocations as Allocation[]) {
+    for (const doc of docs) {
+      const tc = doc.data() as Timecard;
+      const user = usersMap.get(tc.employeeId);
+      const facility = facilitiesMap.get(tc.facilityId);
+      const date = new Date(tc.checkInTime).toLocaleDateString('en-US');
+      const checkIn = new Date(tc.checkInTime).toLocaleTimeString('en-US');
+      const checkOut = tc.checkOutTime ? new Date(tc.checkOutTime).toLocaleTimeString('en-US') : '';
+
+      if (tc.allocations && tc.allocations.length > 0) {
+        for (const alloc of tc.allocations as Allocation[]) {
+          rows.push([
+            escapeCsv(date),
+            escapeCsv(user?.name),
+            escapeCsv(user?.email),
+            escapeCsv(facility?.name),
+            escapeCsv(checkIn),
+            escapeCsv(checkOut),
+            escapeCsv(tc.totalHours),
+            escapeCsv(tc.remote ? 'Yes' : 'No'),
+            escapeCsv(alloc.functionName),
+            escapeCsv(alloc.percentage),
+          ].join(','));
+        }
+      } else {
         rows.push([
           escapeCsv(date),
           escapeCsv(user?.name),
@@ -74,31 +94,26 @@ export async function GET(request: NextRequest) {
           escapeCsv(checkOut),
           escapeCsv(tc.totalHours),
           escapeCsv(tc.remote ? 'Yes' : 'No'),
-          escapeCsv(alloc.functionName),
-          escapeCsv(alloc.percentage),
+          '',
+          '',
         ].join(','));
       }
-    } else {
-      rows.push([
-        escapeCsv(date),
-        escapeCsv(user?.name),
-        escapeCsv(user?.email),
-        escapeCsv(facility?.name),
-        escapeCsv(checkIn),
-        escapeCsv(checkOut),
-        escapeCsv(tc.totalHours),
-        escapeCsv(tc.remote ? 'Yes' : 'No'),
-        '',
-        '',
-      ].join(','));
     }
-  }
 
-  const csv = rows.join('\n');
-  return new NextResponse(csv, {
-    headers: {
-      'Content-Type': 'text/csv',
-      'Content-Disposition': 'attachment; filename="timecards-export.csv"',
-    },
-  });
+    const csv = rows.join('\n');
+    return new NextResponse(csv, {
+      headers: {
+        'Content-Type': 'text/csv',
+        'Content-Disposition': 'attachment; filename="timecards-export.csv"',
+      },
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('requires an index')) {
+      const urlMatch = message.match(/https:\/\/\S+/);
+      console.error('[export GET] Missing Firestore index. Create it at:', urlMatch?.[0] ?? '(no URL in error)');
+    }
+    console.error('[export GET]', message);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

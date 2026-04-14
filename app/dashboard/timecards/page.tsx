@@ -445,7 +445,7 @@ export default function TimecardsPage() {
                           </span>
                           {noAllocations && (
                             <span className="inline-block px-2 py-0.5 rounded text-xs font-display font-bold bg-red-100 text-red-700 border border-red-200">
-                              Time not logged
+                              Functions not logged
                             </span>
                           )}
                           {tc.manualEntry && (
