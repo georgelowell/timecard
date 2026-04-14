@@ -87,6 +87,13 @@ function removeAlloc(allocs: WorkingAlloc[], functionId: string): WorkingAlloc[]
   }));
 }
 
+/** "John Smith" → "J. Smith", handles single-word names gracefully. */
+function shortName(full: string): string {
+  const parts = full.trim().split(/\s+/);
+  if (parts.length < 2) return full;
+  return `${parts[0][0]}. ${parts.slice(1).join(' ')}`;
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function TimecardsPage() {
@@ -360,11 +367,17 @@ export default function TimecardsPage() {
           </select>
         </div>
         <div>
-          <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">Employee ID</label>
-          <input type="text" placeholder="Filter by employee" value={filters.employeeId}
+          <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">Employee</label>
+          <select value={filters.employeeId}
             onChange={e => setFilters(f => ({ ...f, employeeId: e.target.value }))}
             className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
-                       focus:outline-none focus:ring-2 focus:ring-warm-brown" />
+                       focus:outline-none focus:ring-2 focus:ring-warm-brown">
+            <option value="">All employees</option>
+            {[...employees]
+              .sort((a, b) => shortName(a.name).localeCompare(shortName(b.name)))
+              .map(e => <option key={e.id} value={e.id}>{shortName(e.name)}</option>)
+            }
+          </select>
         </div>
         <div className="flex items-end">
           <button onClick={load}
