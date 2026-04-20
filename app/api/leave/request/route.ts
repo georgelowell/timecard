@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
 
     const docRef = await adminDb.collection('leaveRequests').add(requestData);
 
-    const appUrl = process.env.NEXTAUTH_URL ?? '';
+    const appUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? '';
     try {
       await sendLeaveRequestEmail({
         employeeName: userData.name ?? '',

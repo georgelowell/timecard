@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
   );
   const usersMap = new Map(userDocs.map(d => [d.id, d.data()]));
 
-  const appUrl = process.env.NEXTAUTH_URL || 'https://localhost:3000';
+  const appUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? '';
   let sent = 0;
 
   await Promise.all(
