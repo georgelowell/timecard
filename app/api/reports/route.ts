@@ -114,6 +114,35 @@ export async function GET(request: NextRequest) {
       emp.dayMap.set(date, existing);
     }
 
+    // Fetch approved leave requests for the period
+    const leaveSnap = await adminDb
+      .collection('leaveRequests')
+      .where('status', '==', 'approved')
+      .limit(1000)
+      .get();
+
+    // Map leave hours per employee
+    const leaveMap = new Map<string, { pto: number; sick: number }>();
+    for (const doc of leaveSnap.docs) {
+      const lr = doc.data();
+      let hoursInPeriod = 0;
+      let leavePto = 0;
+      let leaveSick = 0;
+      for (const d of (lr.dates ?? [])) {
+        if (d.date >= startDate && d.date <= endDate) {
+          hoursInPeriod += d.hours;
+          if (lr.type === 'pto') leavePto += d.hours;
+          else leaveSick += d.hours;
+        }
+      }
+      if (hoursInPeriod > 0) {
+        const existing = leaveMap.get(lr.employeeId) ?? { pto: 0, sick: 0 };
+        existing.pto += leavePto;
+        existing.sick += leaveSick;
+        leaveMap.set(lr.employeeId, existing);
+      }
+    }
+
     const employees = Array.from(empMap.values())
       .sort((a, b) => lastName(a.name).localeCompare(lastName(b.name)))
       .map(emp => {
@@ -125,11 +154,18 @@ export async function GET(request: NextRequest) {
             hasOpenShift: entry?.hasOpenShift ?? false,
           };
         });
+        const workedHours = Math.round(dayEntries.reduce((s, d) => s + d.hours, 0) * 100) / 100;
+        const leave = leaveMap.get(emp.id) ?? { pto: 0, sick: 0 };
+        const ptoHours = Math.round(leave.pto * 100) / 100;
+        const sickHours = Math.round(leave.sick * 100) / 100;
         return {
           id: emp.id,
           name: emp.name,
           email: emp.email,
-          totalHours: Math.round(dayEntries.reduce((s, d) => s + d.hours, 0) * 100) / 100,
+          workedHours,
+          ptoHours,
+          sickHours,
+          totalHours: Math.round((workedHours + ptoHours + sickHours) * 100) / 100,
           hasOpenShift: dayEntries.some(d => d.hasOpenShift),
           days: dayEntries,
         };

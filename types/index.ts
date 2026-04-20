@@ -101,3 +101,47 @@ export interface Timecard {
 export interface TaxonomyNode extends Category {
   functions: JobFunction[];
 }
+
+export type LeaveType = 'pto' | 'sick';
+export type LeaveStatus = 'pending' | 'approved' | 'denied';
+
+export interface LeaveDate {
+  date: string; // YYYY-MM-DD
+  hours: number;
+}
+
+export interface LeaveAdjustment {
+  amount: number;
+  reason: string;
+  adjustedBy: string;
+  adjustedAt: string;
+}
+
+export interface LeaveRequest {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  employeeEmail: string;
+  type: LeaveType;
+  dates: LeaveDate[];
+  totalHours: number;
+  status: LeaveStatus;
+  submittedAt: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  denialReason?: string;
+  isRetroactive: boolean;
+}
+
+export interface LeaveBalance {
+  id: string;
+  employeeId: string;
+  year: number;
+  ptoTotal: number;
+  ptoUsed: number;
+  ptoAdjustments: LeaveAdjustment[];
+  sickTotal: number;
+  sickUsed: number;
+  sickAdjustments: LeaveAdjustment[];
+  updatedAt: string;
+}

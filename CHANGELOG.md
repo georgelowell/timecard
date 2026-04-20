@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.14.0] — 2026-04-20
+
+### Added
+
+**PTO and Sick Time Request System**
+
+**Data model**
+- New Firestore collection `leaveRequests` — fields: `employeeId`, `employeeName`, `employeeEmail`, `type` (`pto`|`sick`), `dates` (array of `{date, hours}`), `totalHours`, `status` (`pending`|`approved`|`denied`), `submittedAt`, `reviewedBy`, `reviewedAt`, `denialReason`, `isRetroactive`
+- New Firestore collection `leaveBalances` — document ID `{employeeId}_{year}`; fields: `ptoTotal` (default 40), `ptoUsed`, `ptoAdjustments` (audit trail), `sickTotal`, `sickUsed`, `sickAdjustments`
+- Balance docs are created lazily on first API access for the current year
+
+**API routes**
+- `GET /api/leave/balance` — returns authenticated employee's current-year balance; creates doc if missing; managers can pass `?employeeId=X` or `?all=true` to retrieve all balances
+- `PATCH /api/leave/balance` — manager-only; adjusts an employee's `ptoTotal` or `sickTotal` by a signed amount; appends to the corresponding adjustments array for full audit trail
+- `POST /api/leave/request` — submits a leave request; validates dates ≤ 7 days in the past, hours per day 1–8, total hours ≤ remaining balance; creates `pending` leave request; sends manager notification email
+- `POST /api/leave/review` — manager-only; approves or denies a pending request; approval increments `ptoUsed`/`sickUsed` in the balance doc; emails the employee either way
+- `GET /api/leave/review?action=approved&id=X` — one-click approve link from manager email; redirects to `/dashboard/leave`
+- `GET /api/leave/requests` — employees see their own requests; managers see all, filterable by `employeeId` and `status`; sorted most-recent first in memory
+
+**Employee dashboard (`components/EmployeeOverview.tsx`)**
+- Two new balance cards: PTO Balance and Sick Time Balance (hours remaining / total), styled to brand spec
+- "Request Leave" button (warm-brown) below the balance cards
+- Multi-step **Request Leave modal** (`components/LeaveRequestModal.tsx`): step 1 selects type (PTO/Sick), step 2 adds individual dates with per-date hours input (default 8h, 1–8 range), step 3 reviews and submits; warns and blocks if requested hours exceed remaining balance
+- **Leave History** section showing last 5 requests with type, dates, hours, and status badge; denied requests show an expandable reason field
+
+**Manager dashboard — Leave tab (`app/dashboard/leave/page.tsx`)**
+- New "Leave" nav item (manager/admin) between Reports and Analytics
+- Pending requests shown at the top with warm-brown highlight; each card shows employee name/email, request type, dates, hours, submitted date, retroactive badge
+- One-click Approve button and Deny button per pending card; Deny opens a small modal for an optional denial reason
+- Filter bar: employee dropdown, type selector, status selector
+- All requests listed below pending section
+
+**Manager dashboard — Users page (`app/dashboard/users/page.tsx`)**
+- New "Leave Balances" table section listing all active employees with their current-year PTO used/total and Sick Time used/total
+- "Adjust" button per employee opens an Adjust Balance modal: type selector, signed adjustment amount, required reason field; adjustment is saved via `PATCH /api/leave/balance` and the audit trail is appended
+
+**Payroll report updates (`app/dashboard/reports/page.tsx`, `app/api/reports/route.ts`)**
+- Per-employee card now shows three separate totals: Hours Worked (clock-in/out), PTO, Sick Time; note shown when leave hours are present: "PTO and Sick Time do not count toward overtime threshold"
+- Summary table updated to 5 columns: Employee | Hours Worked | PTO | Sick Time | Total Hours
+- Copy-to-clipboard updated to include the four numeric columns as tab-separated values
+- CSV export updated with columns: Hours Worked, PTO Hours, Sick Time Hours, Total Hours (in addition to per-day columns)
+- Reports API now queries approved `leaveRequests` and maps per-employee leave hours for dates within the report period
+
+**Emails**
+- `sendLeaveRequestEmail` — to managers: employee name/type/dates/hours/balance, one-click Approve link, Deny link to dashboard
+- `sendLeaveApprovedEmail` — to employee: approved dates/hours, updated remaining balance
+- `sendLeaveDeniedEmail` — to employee: denied dates, optional reason, balance unchanged note
+
+**Infrastructure**
+- `firestore.indexes.json` updated with three composite indexes for `leaveRequests`: `(employeeId, submittedAt)`, `(status, submittedAt)`, `(status, employeeId, submittedAt)`
+- `types/index.ts` updated with `LeaveType`, `LeaveStatus`, `LeaveDate`, `LeaveAdjustment`, `LeaveRequest`, `LeaveBalance` interfaces
+- Middleware updated: `/dashboard/leave` requires manager or admin role
+
 ## [1.13.0] — 2026-04-14
 
 ### Changed

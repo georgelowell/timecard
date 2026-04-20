@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { User, UserRole, Facility } from '@/types';
+import { User, UserRole, Facility, LeaveBalance } from '@/types';
 
 const ROLES: UserRole[] = ['employee', 'manager', 'admin'];
 
@@ -13,12 +13,30 @@ interface Invite {
   createdAt: string;
 }
 
+interface LeaveBalanceWithEmployee extends LeaveBalance {
+  employeeName?: string;
+  employeeEmail?: string;
+}
+
+interface AdjustModal {
+  employeeId: string;
+  employeeName: string;
+  type: 'pto' | 'sick';
+  adjustment: number;
+  reason: string;
+  saving: boolean;
+  error: string;
+}
+
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
+  const [balances, setBalances] = useState<LeaveBalanceWithEmployee[]>([]);
+  const [balancesLoading, setBalancesLoading] = useState(true);
+  const [adjustModal, setAdjustModal] = useState<AdjustModal | null>(null);
 
   const [addingUser, setAddingUser] = useState(false);
   const [newUser, setNewUser] = useState({ email: '', role: 'employee' as UserRole, facilityId: '' });
@@ -36,6 +54,45 @@ export default function UsersPage() {
       setLoading(false);
     });
   }, []);
+
+  useEffect(() => {
+    fetch('/api/leave/balance?all=true')
+      .then(r => r.json())
+      .then(data => {
+        setBalances(data.balances || []);
+        setBalancesLoading(false);
+      })
+      .catch(() => setBalancesLoading(false));
+  }, []);
+
+  async function saveAdjustment() {
+    if (!adjustModal) return;
+    setAdjustModal(prev => prev ? { ...prev, saving: true, error: '' } : null);
+    try {
+      const res = await fetch('/api/leave/balance', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeId: adjustModal.employeeId,
+          type: adjustModal.type,
+          adjustment: adjustModal.adjustment,
+          reason: adjustModal.reason,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAdjustModal(prev => prev ? { ...prev, saving: false, error: data.error || 'Failed.' } : null);
+        return;
+      }
+      // Refresh balances
+      const bRes = await fetch('/api/leave/balance?all=true');
+      const bData = await bRes.json();
+      setBalances(bData.balances || []);
+      setAdjustModal(null);
+    } catch {
+      setAdjustModal(prev => prev ? { ...prev, saving: false, error: 'Request failed.' } : null);
+    }
+  }
 
   async function updateUser(id: string, updates: Partial<User>) {
     setSaving(id);
@@ -215,6 +272,72 @@ export default function UsersPage() {
         </div>
       )}
 
+      {/* Leave balances section */}
+      <div className="bg-white rounded-lg border border-tan shadow-card overflow-hidden">
+        <div className="px-4 py-3 border-b border-tan/40">
+          <h2 className="font-display font-bold text-near-black text-sm">Leave Balances</h2>
+          <p className="text-xs text-sage font-body mt-0.5">Current year PTO and Sick Time balances.</p>
+        </div>
+        {balancesLoading ? (
+          <div className="flex justify-center py-6">
+            <div className="w-6 h-6 border-4 border-warm-brown border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : balances.length === 0 ? (
+          <p className="px-4 py-6 text-center text-sage text-sm font-body">No balances found.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-near-black">
+                <tr>
+                  {['Employee', 'PTO Used / Total', 'Sick Used / Total', ''].map(h => (
+                    <th key={h} className="text-left px-4 py-2.5 font-display font-bold text-tan text-xs uppercase tracking-wide">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {balances.map((b, i) => (
+                  <tr key={b.id} className={i % 2 === 0 ? 'bg-white' : 'bg-off-white'}>
+                    <td className="px-4 py-2.5">
+                      <p className="font-display font-bold text-near-black text-sm">{b.employeeName ?? '—'}</p>
+                      <p className="text-xs text-sage font-mono">{b.employeeEmail ?? ''}</p>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="font-mono text-near-black font-bold">{b.ptoUsed}h</span>
+                      <span className="text-sage font-mono"> / {b.ptoTotal}h</span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="font-mono text-near-black font-bold">{b.sickUsed}h</span>
+                      <span className="text-sage font-mono"> / {b.sickTotal}h</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <button
+                        onClick={() =>
+                          setAdjustModal({
+                            employeeId: b.employeeId,
+                            employeeName: b.employeeName ?? 'Employee',
+                            type: 'pto',
+                            adjustment: 0,
+                            reason: '',
+                            saving: false,
+                            error: '',
+                          })
+                        }
+                        className="text-xs px-3 py-1 border border-tan text-sage rounded font-display font-bold
+                                   hover:border-near-black hover:text-near-black transition-colors"
+                      >
+                        Adjust
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* Registered users */}
       <div className="bg-white rounded-lg border border-tan shadow-card overflow-hidden">
         <div className="overflow-x-auto">
@@ -287,6 +410,71 @@ export default function UsersPage() {
           </table>
         </div>
       </div>
+
+      {/* Adjust balance modal */}
+      {adjustModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-near-black/50" onClick={() => setAdjustModal(null)} />
+          <div className="relative bg-white rounded-xl border border-tan shadow-xl w-full max-w-sm p-5 space-y-4">
+            <h3 className="font-display font-black text-near-black">Adjust Leave Balance</h3>
+            <p className="text-sm font-body text-sage">{adjustModal.employeeName}</p>
+            <div>
+              <label className="block text-xs text-sage font-body mb-1">Type</label>
+              <select
+                value={adjustModal.type}
+                onChange={e => setAdjustModal(prev => prev ? { ...prev, type: e.target.value as 'pto' | 'sick' } : null)}
+                className={inputClass}
+              >
+                <option value="pto">PTO</option>
+                <option value="sick">Sick Time</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-sage font-body mb-1">
+                Adjustment (hours, can be negative)
+              </label>
+              <input
+                type="number"
+                step={1}
+                value={adjustModal.adjustment}
+                onChange={e => setAdjustModal(prev => prev ? { ...prev, adjustment: Number(e.target.value) } : null)}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-sage font-body mb-1">Reason (required)</label>
+              <input
+                type="text"
+                value={adjustModal.reason}
+                onChange={e => setAdjustModal(prev => prev ? { ...prev, reason: e.target.value } : null)}
+                placeholder="e.g. Annual rollover correction"
+                className={inputClass}
+              />
+            </div>
+            {adjustModal.error && (
+              <p className="text-sm font-body text-near-black bg-tan/20 border border-tan rounded-lg px-3 py-2">
+                {adjustModal.error}
+              </p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setAdjustModal(null)}
+                className="text-sage px-4 py-2 text-sm font-body hover:text-near-black transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveAdjustment}
+                disabled={adjustModal.saving || !adjustModal.reason.trim() || adjustModal.adjustment === 0}
+                className="bg-warm-brown text-off-white px-4 py-2 rounded-lg text-sm font-display font-bold
+                           hover:opacity-90 disabled:opacity-40 transition-opacity"
+              >
+                {adjustModal.saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

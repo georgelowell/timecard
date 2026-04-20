@@ -43,6 +43,7 @@ function escapeCsv(val: string | number | undefined): string {
 interface EmployeeDay  { date: string; hours: number; hasOpenShift: boolean; }
 interface EmployeeReport {
   id: string; name: string; email: string;
+  workedHours: number; ptoHours: number; sickHours: number;
   totalHours: number; hasOpenShift: boolean;
   days: EmployeeDay[];
 }
@@ -100,9 +101,9 @@ export default function ReportsPage() {
 
   function copyToClipboard() {
     if (!report) return;
-    const lines = ['Employee Name\tTotal Hours'];
+    const lines = ['Employee Name\tHours Worked\tPTO\tSick Time\tTotal Hours'];
     for (const emp of report.employees) {
-      lines.push(`${emp.name}\t${emp.totalHours}`);
+      lines.push(`${emp.name}\t${emp.workedHours ?? emp.totalHours}\t${emp.ptoHours ?? 0}\t${emp.sickHours ?? 0}\t${emp.totalHours}`);
     }
     navigator.clipboard.writeText(lines.join('\n')).then(() => {
       setCopied(true);
@@ -114,7 +115,7 @@ export default function ReportsPage() {
     if (!report) return;
     const days = report.employees[0]?.days ?? [];
     const dayHeaders = days.flatMap(d => [formatDayLabel(d.date), formatDayLabel(d.date) + ' Hrs']);
-    const headerRow = ['Start Date', 'End Date', 'Employee', 'Total Hours', ...dayHeaders].join(',');
+    const headerRow = ['Start Date', 'End Date', 'Employee', 'Hours Worked', 'PTO Hours', 'Sick Time Hours', 'Total Hours', ...dayHeaders].join(',');
     const rows = [headerRow];
     for (const emp of report.employees) {
       const dayCols = emp.days.flatMap(d => [
@@ -125,6 +126,9 @@ export default function ReportsPage() {
         escapeCsv(report.startDate),
         escapeCsv(report.endDate),
         escapeCsv(emp.name),
+        escapeCsv(emp.workedHours ?? emp.totalHours),
+        escapeCsv(emp.ptoHours ?? 0),
+        escapeCsv(emp.sickHours ?? 0),
         escapeCsv(emp.totalHours),
         ...dayCols,
       ].join(','));
@@ -231,14 +235,34 @@ export default function ReportsPage() {
               {report.employees.map(emp => (
                 <div key={emp.id} className="bg-white rounded-lg border border-tan shadow-card overflow-hidden">
                   {/* Employee header */}
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-tan/40">
-                    <div>
-                      <p className="font-display font-bold text-near-black">{emp.name}</p>
-                      <p className="text-xs font-body text-sage">{emp.email}</p>
+                  <div className="px-4 py-3 border-b border-tan/40">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-display font-bold text-near-black">{emp.name}</p>
+                        <p className="text-xs font-body text-sage">{emp.email}</p>
+                      </div>
                     </div>
-                    <p className="font-mono font-bold text-warm-brown text-lg">
-                      {emp.totalHours}h{emp.hasOpenShift && <span className="text-warm-brown">*</span>}
-                    </p>
+                    <div className="grid grid-cols-3 gap-3 mt-3">
+                      <div>
+                        <p className="text-xs font-body text-sage">Hours Worked</p>
+                        <p className="font-mono font-bold text-near-black">
+                          {emp.workedHours ?? emp.totalHours}h{emp.hasOpenShift && <span className="text-warm-brown">*</span>}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-body text-sage">PTO</p>
+                        <p className="font-mono font-bold text-near-black">{emp.ptoHours ?? 0}h</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-body text-sage">Sick Time</p>
+                        <p className="font-mono font-bold text-near-black">{emp.sickHours ?? 0}h</p>
+                      </div>
+                    </div>
+                    {((emp.ptoHours ?? 0) > 0 || (emp.sickHours ?? 0) > 0) && (
+                      <p className="text-xs font-body text-sage mt-2 italic">
+                        PTO and Sick Time do not count toward overtime threshold.
+                      </p>
+                    )}
                   </div>
                   {/* Day rows */}
                   <div className="divide-y divide-tan/20">
@@ -286,18 +310,22 @@ export default function ReportsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr style={{ backgroundColor: 'var(--color-near-black)' }}>
-                    <th className="text-left px-4 py-3 font-display font-bold text-tan text-xs uppercase tracking-wide">
-                      Employee Name
-                    </th>
-                    <th className="text-right px-4 py-3 font-display font-bold text-tan text-xs uppercase tracking-wide">
-                      Total Hours
-                    </th>
+                    {['Employee', 'Hours Worked', 'PTO', 'Sick Time', 'Total Hours'].map(h => (
+                      <th key={h} className="text-left px-4 py-3 font-display font-bold text-tan text-xs uppercase tracking-wide last:text-right">
+                        {h}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
                   {report.employees.map((emp, i) => (
                     <tr key={emp.id} className={i % 2 === 0 ? 'bg-white' : 'bg-off-white'}>
                       <td className="px-4 py-2.5 font-body text-near-black">{emp.name}</td>
+                      <td className="px-4 py-2.5 font-mono text-near-black">
+                        {emp.workedHours ?? emp.totalHours}h{emp.hasOpenShift && <span className="text-warm-brown">*</span>}
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-near-black">{emp.ptoHours ?? 0}h</td>
+                      <td className="px-4 py-2.5 font-mono text-near-black">{emp.sickHours ?? 0}h</td>
                       <td className="px-4 py-2.5 font-mono text-right text-near-black font-bold">
                         {emp.totalHours}h{emp.hasOpenShift && <span className="text-warm-brown">*</span>}
                       </td>

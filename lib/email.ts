@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 import { adminDb } from '@/lib/firebase-admin';
-import { GeoLocation } from '@/types';
+import { GeoLocation, LeaveDate, LeaveType } from '@/types';
 
 const TZ = 'America/New_York';
 
@@ -97,6 +97,152 @@ export async function sendRemoteCheckInEmail({
         <p style="color: #666; font-size: 14px;">
           If you did not expect this request, you can ignore this email.
         </p>
+      </div>
+    `,
+  });
+}
+
+function formatLeaveType(type: LeaveType): string {
+  return type === 'pto' ? 'PTO' : 'Sick Time';
+}
+
+function formatLeaveDates(dates: LeaveDate[]): string {
+  return dates
+    .map(d => {
+      const [y, m, day] = d.date.split('-').map(Number);
+      const label = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+        .format(new Date(y, m - 1, day, 12));
+      return `${label} — ${d.hours}h`;
+    })
+    .join('<br>');
+}
+
+export async function sendLeaveRequestEmail({
+  employeeName,
+  employeeEmail,
+  type,
+  dates,
+  totalHours,
+  remaining,
+  requestId,
+  appUrl,
+}: {
+  employeeName: string;
+  employeeEmail: string;
+  type: LeaveType;
+  dates: LeaveDate[];
+  totalHours: number;
+  remaining: number;
+  requestId: string;
+  appUrl: string;
+}) {
+  const managerEmails = await getManagerEmails();
+  if (managerEmails.length === 0) return;
+
+  const typeLabel = formatLeaveType(type);
+  const approveUrl = `${appUrl}/api/leave/review?action=approved&id=${requestId}`;
+  const denyUrl = `${appUrl}/dashboard/leave`;
+  const datesHtml = formatLeaveDates(dates);
+
+  await transporter.sendMail({
+    from: process.env.GMAIL_USER,
+    to: managerEmails.join(', '),
+    subject: `Leave Request — ${employeeName} (${typeLabel})`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #231F20;">Leave Request</h2>
+        <p><strong>${employeeName}</strong> (${employeeEmail}) has submitted a ${typeLabel} request.</p>
+        <p style="margin: 12px 0;"><strong>Dates requested:</strong><br>${datesHtml}</p>
+        <p style="margin: 8px 0;"><strong>Total hours:</strong> ${totalHours}h</p>
+        <p style="margin: 8px 0;"><strong>Current balance remaining:</strong> ${remaining}h of ${typeLabel}</p>
+        <div style="margin-top: 24px; display: flex; gap: 12px;">
+          <a href="${approveUrl}"
+             style="display: inline-block; background: #777D64; color: #E9E8E0; padding: 12px 24px;
+                    border-radius: 6px; text-decoration: none; font-weight: bold; margin-right: 12px;">
+            Approve
+          </a>
+          <a href="${denyUrl}"
+             style="display: inline-block; background: #231F20; color: #E9E8E0; padding: 12px 24px;
+                    border-radius: 6px; text-decoration: none; font-weight: bold;">
+            Deny (in dashboard)
+          </a>
+        </div>
+        <p style="color: #777D64; font-size: 13px; margin-top: 16px;">
+          The Deny button opens the Leave management page where you can enter an optional reason.
+        </p>
+      </div>
+    `,
+  });
+}
+
+export async function sendLeaveApprovedEmail({
+  employeeEmail,
+  employeeName,
+  type,
+  dates,
+  totalHours,
+  remainingBalance,
+}: {
+  employeeEmail: string;
+  employeeName: string;
+  type: LeaveType;
+  dates: LeaveDate[];
+  totalHours: number;
+  remainingBalance: number;
+}) {
+  if (!employeeEmail) return;
+  const typeLabel = formatLeaveType(type);
+  const datesHtml = formatLeaveDates(dates);
+
+  await transporter.sendMail({
+    from: process.env.GMAIL_USER,
+    to: employeeEmail,
+    subject: `Your ${typeLabel} request has been approved`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #231F20;">Leave Request Approved</h2>
+        <p>Hi ${employeeName},</p>
+        <p>Your ${typeLabel} request has been approved.</p>
+        <p style="margin: 12px 0;"><strong>Approved dates:</strong><br>${datesHtml}</p>
+        <p style="margin: 8px 0;"><strong>Total hours approved:</strong> ${totalHours}h</p>
+        <p style="margin: 8px 0; color: #777D64;">Remaining ${typeLabel} balance: ${remainingBalance}h</p>
+      </div>
+    `,
+  });
+}
+
+export async function sendLeaveDeniedEmail({
+  employeeEmail,
+  employeeName,
+  type,
+  dates,
+  denialReason,
+  remainingBalance,
+}: {
+  employeeEmail: string;
+  employeeName: string;
+  type: LeaveType;
+  dates: LeaveDate[];
+  denialReason?: string;
+  remainingBalance: number;
+}) {
+  if (!employeeEmail) return;
+  const typeLabel = formatLeaveType(type);
+  const datesHtml = formatLeaveDates(dates);
+
+  await transporter.sendMail({
+    from: process.env.GMAIL_USER,
+    to: employeeEmail,
+    subject: `Your ${typeLabel} request was not approved`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #231F20;">Leave Request Not Approved</h2>
+        <p>Hi ${employeeName},</p>
+        <p>Your ${typeLabel} request was not approved.</p>
+        <p style="margin: 12px 0;"><strong>Requested dates:</strong><br>${datesHtml}</p>
+        ${denialReason ? `<p style="margin: 8px 0;"><strong>Reason:</strong> ${denialReason}</p>` : ''}
+        <p style="margin: 8px 0; color: #777D64;">Your ${typeLabel} balance is unchanged: ${remainingBalance}h remaining.</p>
+        <p style="color: #777D64; font-size: 13px;">Please reach out to your manager if you have questions.</p>
       </div>
     `,
   });
