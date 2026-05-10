@@ -11,12 +11,22 @@ interface Props {
   userName: string;
 }
 
+function ClockIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
+}
+
 export default function DashboardNav({ role, userName }: Props) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const navRef = useRef<HTMLElement>(null);
 
   const navItems = [
+    { href: '/dashboard/clock',    label: 'Clock in/out', roles: ['employee', 'manager', 'admin'], clock: true },
     { href: '/dashboard',           label: 'Overview',  roles: ['employee', 'manager', 'admin'] },
     { href: '/dashboard/history',   label: 'History',   roles: ['employee'] },
     { href: '/dashboard/timecards', label: 'Timecards', roles: ['manager', 'admin'] },
@@ -65,11 +75,20 @@ export default function DashboardNav({ role, userName }: Props) {
                   key={item.href}
                   href={item.href}
                   className={`px-3 py-1.5 rounded text-sm font-display font-bold whitespace-nowrap transition-colors ${
-                    active ? 'text-tan' : 'text-off-white/70 hover:text-off-white'
+                    item.clock
+                      ? 'text-warm-brown hover:text-warm-brown/80'
+                      : active ? 'text-tan' : 'text-off-white/70 hover:text-off-white'
                   }`}
                 >
-                  {item.label}
-                  {active && <span className="block h-0.5 bg-tan mt-0.5 rounded-full" />}
+                  {item.clock ? (
+                    <span className="flex items-center gap-1.5">
+                      <ClockIcon />
+                      {item.label}
+                    </span>
+                  ) : item.label}
+                  {active && (
+                    <span className={`block h-0.5 ${item.clock ? 'bg-warm-brown' : 'bg-tan'} mt-0.5 rounded-full`} />
+                  )}
                 </Link>
               );
             })}
@@ -120,10 +139,15 @@ export default function DashboardNav({ role, userName }: Props) {
                   href={item.href}
                   className={`flex items-center gap-3 px-6 py-4 text-sm font-display font-bold
                               border-b border-off-white/5 last:border-b-0 min-h-[44px] transition-colors ${
-                    active ? 'text-warm-brown' : 'text-off-white/70 active:text-off-white'
+                    item.clock
+                      ? 'text-warm-brown'
+                      : active ? 'text-warm-brown' : 'text-off-white/70 active:text-off-white'
                   }`}
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${active ? 'bg-warm-brown' : 'bg-transparent'}`} />
+                  {item.clock
+                    ? <ClockIcon className="w-4 h-4 flex-shrink-0" />
+                    : <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${active ? 'bg-warm-brown' : 'bg-transparent'}`} />
+                  }
                   {item.label}
                 </Link>
               );

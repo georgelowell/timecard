@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.15.0] — 2026-05-10
+
+### Added
+
+**Clock in/out navigation and facility selection**
+
+- Added "Clock in/out" as the first item in `DashboardNav` for all roles (employee, manager, admin); styled in warm-brown (`#7B604B`) with an inline clock SVG icon
+- Desktop: renders as a tab before Overview; mobile: renders as the first item in the hamburger menu with a 44px min-height tap target
+- New page `app/dashboard/clock/page.tsx`: shows a "Where are you working today?" heading and one card per active facility fetched from `GET /api/facilities`; tapping a card navigates to `/scan?facility=[id]`; a "Working remotely today?" link routes to `/scan?facility=remote`
+- `/dashboard/clock` is protected by the existing middleware matcher (`/dashboard/:path*`) — authentication required, all roles permitted
+
+---
+
 ## [1.14.0] — 2026-04-20
 
 ### Added
