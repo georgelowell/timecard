@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/session';
 import { adminDb } from '@/lib/firebase-admin';
+import { formatET } from '@/lib/tz';
 import { Timecard, Allocation } from '@/types';
 
 function escapeCsv(val: string | number | undefined): string {
@@ -65,9 +66,9 @@ export async function GET(request: NextRequest) {
       const tc = doc.data() as Timecard;
       const user = usersMap.get(tc.employeeId);
       const facility = facilitiesMap.get(tc.facilityId);
-      const date = new Date(tc.checkInTime).toLocaleDateString('en-US');
-      const checkIn = new Date(tc.checkInTime).toLocaleTimeString('en-US');
-      const checkOut = tc.checkOutTime ? new Date(tc.checkOutTime).toLocaleTimeString('en-US') : '';
+      const date    = formatET(tc.checkInTime, 'M/d/yyyy');
+      const checkIn = formatET(tc.checkInTime, 'h:mm aa');
+      const checkOut = tc.checkOutTime ? formatET(tc.checkOutTime, 'h:mm aa') : '';
 
       if (tc.allocations && tc.allocations.length > 0) {
         for (const alloc of tc.allocations as Allocation[]) {

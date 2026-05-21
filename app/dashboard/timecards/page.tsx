@@ -19,6 +19,11 @@ function getWeekStartET(): string {
   return toETDateStr(monday);
 }
 
+function getYearStartET(): string {
+  const year = toETDateStr(new Date()).substring(0, 4);
+  return `${year}-01-01`;
+}
+
 /** Adds N days to a 'YYYY-MM-DD' string, returns a new 'YYYY-MM-DD' in ET. */
 function addDaysToDateStr(dateStr: string, days: number): string {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -121,7 +126,7 @@ export default function TimecardsPage() {
   const [employees, setEmployees]   = useState<Employee[]>([]);
   const [taxonomy, setTaxonomy]     = useState<TaxonomyNode[]>([]);
   const [loading, setLoading]       = useState(true);
-  const [filters, setFilters]       = useState({ startDate: getWeekStartET(), weeksDuration: 1, facilityId: '', employeeId: '' });
+  const [filters, setFilters]       = useState({ startDate: getWeekStartET(), duration: '1', facilityId: '', employeeId: '' });
   const [modal, setModal]           = useState<EditModal | null>(null);
   const [createModal, setCreateModal] = useState<CreateModal | null>(null);
   const [saving, setSaving]         = useState(false);
@@ -141,9 +146,12 @@ export default function TimecardsPage() {
     setLoadError('');
     try {
       const params = new URLSearchParams();
-      if (filters.startDate) {
+      if (filters.duration === 'ytd') {
+        params.set('startDate', getYearStartET());
+        params.set('endDate', toETDateStr(new Date()));
+      } else if (filters.duration !== 'all' && filters.startDate) {
         params.set('startDate', filters.startDate);
-        params.set('endDate', addDaysToDateStr(filters.startDate, filters.weeksDuration * 7 - 1));
+        params.set('endDate', addDaysToDateStr(filters.startDate, parseInt(filters.duration) * 7 - 1));
       }
       if (filters.facilityId) params.set('facilityId', filters.facilityId);
       if (filters.employeeId) params.set('employeeId', filters.employeeId);
@@ -306,9 +314,12 @@ export default function TimecardsPage() {
 
   const exportCsv = () => {
     const params = new URLSearchParams();
-    if (filters.startDate) {
+    if (filters.duration === 'ytd') {
+      params.set('startDate', getYearStartET());
+      params.set('endDate', toETDateStr(new Date()));
+    } else if (filters.duration !== 'all' && filters.startDate) {
       params.set('startDate', filters.startDate);
-      params.set('endDate', addDaysToDateStr(filters.startDate, filters.weeksDuration * 7 - 1));
+      params.set('endDate', addDaysToDateStr(filters.startDate, parseInt(filters.duration) * 7 - 1));
     }
     if (filters.facilityId) params.set('facilityId', filters.facilityId);
     if (filters.employeeId) params.set('employeeId', filters.employeeId);
@@ -383,13 +394,24 @@ export default function TimecardsPage() {
         </div>
         <div>
           <label className="block text-xs font-display font-bold text-sage uppercase tracking-widest mb-1.5">Duration</label>
-          <select value={filters.weeksDuration}
-            onChange={e => setFilters(f => ({ ...f, weeksDuration: Number(e.target.value) }))}
+          <select value={filters.duration}
+            onChange={e => {
+              const val = e.target.value;
+              if (val === 'ytd') {
+                setFilters(f => ({ ...f, duration: 'ytd', startDate: getYearStartET() }));
+              } else if (val === 'all') {
+                setFilters(f => ({ ...f, duration: 'all', startDate: '' }));
+              } else {
+                setFilters(f => ({ ...f, duration: val }));
+              }
+            }}
             className="w-full bg-off-white border border-tan rounded-lg px-3 py-2 text-sm font-body
                        focus:outline-none focus:ring-2 focus:ring-warm-brown">
-            <option value={1}>1 week</option>
-            <option value={2}>2 weeks</option>
-            <option value={4}>4 weeks</option>
+            <option value="1">1 week</option>
+            <option value="2">2 weeks</option>
+            <option value="4">4 weeks</option>
+            <option value="ytd">This Year</option>
+            <option value="all">All Time</option>
           </select>
         </div>
         <div>

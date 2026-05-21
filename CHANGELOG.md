@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.15.1] — 2026-05-21
+
+### Fixed
+
+**CSV export timezone bug**
+
+- `app/api/export/route.ts`: replaced `toLocaleDateString` / `toLocaleTimeString` (which used the server's Pacific local timezone) with `formatET` from `lib/tz.ts`; all date and time columns in exported CSVs now correctly reflect Eastern Time with automatic DST handling
+
+**Timecards duration filter — new options**
+
+- Added "This Year" option to the Duration dropdown (`app/dashboard/timecards/page.tsx`): sets the date range from January 1 of the current year in Eastern Time through today
+- Added "All Time" option: removes the date filter entirely so the query returns all timecards regardless of date (both the `/api/timecards` and `/api/export` routes already handle missing date params gracefully)
+- Dropdown order: 1 week · 2 weeks · 4 weeks · This Year · All Time
+- Selecting "This Year" also updates the Start Date field to Jan 1 of the current year; selecting "All Time" clears it
+- `exportCsv` mirrors the same date logic so exported CSVs respect the selected duration
+
+---
+
 ## [1.15.0] — 2026-05-10
 
 ### Added
