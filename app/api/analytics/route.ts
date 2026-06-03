@@ -46,18 +46,31 @@ export async function GET(request: NextRequest) {
     if (employeeId) query = query.where('employeeId', '==', employeeId);
 
     const snap = await query.get();
-    const timecards = snap.docs.map(d => ({ id: d.id, ...d.data() } as Timecard & { id: string }));
+    const allTimecards = snap.docs.map(d => ({ id: d.id, ...d.data() } as Timecard & { id: string }));
 
-    if (timecards.length === 0) {
+    if (allTimecards.length === 0) {
       return NextResponse.json({ empty: true });
     }
 
-    // Resolve employee names
+    // Separate regular and staffing timecards
+    const timecards = allTimecards.filter(tc => !(tc as unknown as Record<string, unknown>).isStaffingWorker);
+    const staffingTimecards = allTimecards.filter(tc => !!(tc as unknown as Record<string, unknown>).isStaffingWorker);
+
+    // Resolve employee names (regular employees)
     const uniqueEmployeeIds = [...new Set(timecards.map(tc => tc.employeeId))];
     const employeeDocs = uniqueEmployeeIds.length > 0
       ? await adminDb.getAll(...uniqueEmployeeIds.map(id => adminDb.collection('users').doc(id)))
       : [];
     const employeeNames = new Map(employeeDocs.map(d => [d.id, (d.data()?.name as string) || d.id]));
+
+    // Staffing worker names are denormalized on the timecard
+    const staffingWorkerNames = new Map<string, string>();
+    for (const tc of staffingTimecards) {
+      const data = tc as unknown as Record<string, unknown>;
+      const wid = data.staffingWorkerId as string;
+      const wname = data.staffingWorkerName as string;
+      if (wid && wname) staffingWorkerNames.set(wid, wname);
+    }
 
     // Resolve category names from functions
     const functionIds = new Set<string>();
@@ -97,18 +110,27 @@ export async function GET(request: NextRequest) {
     }
 
     // ── 1. Summary ──────────────────────────────────────────────────────────
-    const totalHours = Math.round(
+    const employeeHours = Math.round(
       timecards.reduce((s, tc) => s + (tc.totalHours || 0), 0) * 100
     ) / 100;
-    const totalShifts = timecards.length;
+    const employeeShifts = timecards.length;
+
+    const staffingHours = Math.round(
+      staffingTimecards.reduce((s, tc) => s + (tc.totalHours || 0), 0) * 100
+    ) / 100;
+    const staffingShifts = staffingTimecards.length;
+
+    const totalHours = Math.round((employeeHours + staffingHours) * 100) / 100;
+    const totalShifts = employeeShifts + staffingShifts;
     const avgShiftLength = totalShifts > 0
       ? Math.round((totalHours / totalShifts) * 100) / 100
       : 0;
     const uniqueEmployees = uniqueEmployeeIds.length;
+    const uniqueStaffingWorkers = staffingWorkerNames.size;
 
     // ── 2. Hours by Function ─────────────────────────────────────────────────
     const fnHoursMap = new Map<string, number>();
-    for (const tc of timecards) {
+    for (const tc of allTimecards) {
       for (const alloc of (tc.allocations as Allocation[] | undefined) ?? []) {
         const h = (tc.totalHours || 0) * (alloc.percentage / 100);
         fnHoursMap.set(alloc.functionName, (fnHoursMap.get(alloc.functionName) || 0) + h);
@@ -120,7 +142,7 @@ export async function GET(request: NextRequest) {
 
     // ── 3. Hours by Category ─────────────────────────────────────────────────
     const catHoursMap = new Map<string, number>();
-    for (const tc of timecards) {
+    for (const tc of allTimecards) {
       for (const alloc of (tc.allocations as Allocation[] | undefined) ?? []) {
         const catName = fnCategoryMap.get(alloc.functionId) || 'Uncategorized';
         const h = (tc.totalHours || 0) * (alloc.percentage / 100);
@@ -150,12 +172,28 @@ export async function GET(request: NextRequest) {
         fnHours,
       });
     }
+    // Add staffing workers to employee breakdown
+    for (const tc of staffingTimecards) {
+      const data = tc as unknown as Record<string, unknown>;
+      const wid = (data.staffingWorkerId as string) || tc.employeeId;
+      const existing = empMap.get(wid);
+      const fnHours = existing?.fnHours ?? new Map<string, number>();
+      for (const alloc of (tc.allocations as Allocation[] | undefined) ?? []) {
+        fnHours.set(alloc.functionName, (fnHours.get(alloc.functionName) || 0) + (tc.totalHours || 0) * (alloc.percentage / 100));
+      }
+      empMap.set(wid, {
+        hours: (existing?.hours ?? 0) + (tc.totalHours || 0),
+        shifts: (existing?.shifts ?? 0) + 1,
+        fnHours,
+      });
+    }
     const employeeBreakdown: EmployeeRow[] = [...empMap.entries()]
       .map(([empId, data]) => {
         const topFn = [...data.fnHours.entries()].sort((a, b) => b[1] - a[1])[0];
+        const name = employeeNames.get(empId) || staffingWorkerNames.get(empId) || empId;
         return {
           employeeId: empId,
-          employeeName: employeeNames.get(empId) || empId,
+          employeeName: name,
           totalHours: Math.round(data.hours * 100) / 100,
           topFunction: topFn ? topFn[0] : '—',
           shifts: data.shifts,
@@ -165,7 +203,7 @@ export async function GET(request: NextRequest) {
 
     // ── 5. Daily Hours Trend ─────────────────────────────────────────────────
     const dayMap = new Map<string, number>();
-    for (const tc of timecards) {
+    for (const tc of allTimecards) {
       const d = etDateStr(tc.checkInTime);
       dayMap.set(d, (dayMap.get(d) || 0) + (tc.totalHours || 0));
     }
@@ -177,7 +215,17 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       empty: false,
-      summary: { totalHours, totalShifts, avgShiftLength, uniqueEmployees },
+      summary: {
+        totalHours,
+        totalShifts,
+        avgShiftLength,
+        uniqueEmployees,
+        employeeHours,
+        employeeShifts,
+        staffingHours,
+        staffingShifts,
+        uniqueStaffingWorkers,
+      },
       hoursByFunction,
       hoursByCategory,
       employeeBreakdown,

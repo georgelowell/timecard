@@ -145,3 +145,21 @@ export interface LeaveBalance {
   sickAdjustments: LeaveAdjustment[];
   updatedAt: string;
 }
+
+export interface StaffingWorker {
+  id: string;
+  name: string;
+  createdBy: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Extend Timecard for staffing worker fields
+export interface StaffingTimecard extends Timecard {
+  isStaffingWorker?: boolean;
+  staffingWorkerId?: string;
+  staffingWorkerName?: string;
+  loggedBy?: string;
+  loggedByName?: string;
+}

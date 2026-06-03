@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.16.0] — 2026-06-03
+
+### Added
+
+**Staffing Workers feature**
+
+- Managers/admins can create and manage temporary staffing workers who do not have app accounts
+- Staffing dashboard at `/dashboard/staffing` with clock in/out panel and worker management
+- Clock in flow: multi-select up to 4 workers, back-datable up to 4 hours, facility selection
+- Clock out flow: individual worker checkout with time picker, allocation sliders, recent functions, and "Same as last time" support
+- Worker management: add, rename, deactivate/activate, and remove staffing workers
+- Staffing report on the Reports page with Payroll/Staffing toggle, daily breakdown cards, summary table with "Logged By" column, CSV export, and clipboard copy
+- Analytics page now separates employee and staffing hours in summary breakdown
+- Manager overview dashboard shows staffing workers in "On the clock" list with staffing badge and dedicated staffing shifts stat card
+- New API routes: `POST /api/staffing/clockin`, `POST /api/staffing/clockout`, `GET /api/staffing/active`, `GET/POST /api/staffing/workers`, `PATCH/DELETE /api/staffing/workers/[id]`, `GET /api/reports/staffing`
+- Updated `GET /api/recent-functions` to support `?staffingWorkerId=` for staffing worker function history
+- Updated `GET /api/analytics` to include staffing hours in all metrics and charts
+
 ## [1.15.1] — 2026-05-21
 
 ### Fixed

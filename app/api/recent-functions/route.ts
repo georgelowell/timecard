@@ -1,22 +1,31 @@
 export const dynamic = 'force-dynamic';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/session';
 import { adminDb } from '@/lib/firebase-admin';
 import { Allocation, RecentFunction } from '@/types';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const { session, error } = await requireAuth();
     if (error) return NextResponse.json({ recent: [], lastShift: null }, { status: 401 });
 
+    const { searchParams } = request.nextUrl;
+    const staffingWorkerId = searchParams.get('staffingWorkerId');
+
     // Fetch last 10 completed timecards
-    const snapshot = await adminDb
+    let query = adminDb
       .collection('timecards')
-      .where('employeeId', '==', session!.user.id)
       .where('status', '==', 'checked-out')
       .orderBy('checkInTime', 'desc')
-      .limit(10)
-      .get();
+      .limit(10);
+
+    if (staffingWorkerId) {
+      query = query.where('staffingWorkerId', '==', staffingWorkerId);
+    } else {
+      query = query.where('employeeId', '==', session!.user.id);
+    }
+
+    const snapshot = await query.get();
 
     if (snapshot.empty) {
       return NextResponse.json({ recent: [], lastShift: null });

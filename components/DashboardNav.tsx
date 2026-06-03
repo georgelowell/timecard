@@ -32,6 +32,7 @@ export default function DashboardNav({ role, userName }: Props) {
     { href: '/dashboard/timecards', label: 'Timecards', roles: ['manager', 'admin'] },
     { href: '/dashboard/reports',   label: 'Reports',   roles: ['manager', 'admin'] },
     { href: '/dashboard/leave',     label: 'Leave',     roles: ['manager', 'admin'] },
+    { href: '/dashboard/staffing',  label: 'Staffing',  roles: ['manager', 'admin'] },
     { href: '/dashboard/analytics', label: 'Analytics', roles: ['manager', 'admin'] },
     { href: '/dashboard/taxonomy',  label: 'Taxonomy',  roles: ['manager', 'admin'] },
     { href: '/dashboard/users',     label: 'Users',     roles: ['admin'] },

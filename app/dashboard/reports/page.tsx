@@ -49,9 +49,21 @@ interface EmployeeReport {
 }
 interface PayrollReport { startDate: string; endDate: string; employees: EmployeeReport[]; }
 
+interface StaffingWorkerDay  { date: string; hours: number; hasOpenShift: boolean; }
+interface StaffingWorkerReport {
+  id: string; name: string; totalHours: number;
+  loggedBy: string; loggedByName: string;
+  hasOpenShift: boolean;
+  days: StaffingWorkerDay[];
+}
+interface StaffingReport { startDate: string; endDate: string; workers: StaffingWorkerReport[]; }
+
+type ReportType = 'payroll' | 'staffing';
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
+  const [reportType, setReportType] = useState<ReportType>('payroll');
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [filters, setFilters] = useState({
     startDate: getWeekStartET(),
@@ -59,6 +71,7 @@ export default function ReportsPage() {
     facilityId: '',
   });
   const [report, setReport]       = useState<PayrollReport | null>(null);
+  const [staffingReport, setStaffingReport] = useState<StaffingReport | null>(null);
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
   const [copied, setCopied]       = useState(false);
@@ -78,6 +91,8 @@ export default function ReportsPage() {
     }
     setError('');
     setLoading(true);
+    setReport(null);
+    setStaffingReport(null);
     try {
       const params = new URLSearchParams({
         startDate: filters.startDate,
@@ -85,13 +100,18 @@ export default function ReportsPage() {
       });
       if (filters.facilityId) params.set('facilityId', filters.facilityId);
 
-      const res = await fetch(`/api/reports?${params}`);
+      const apiPath = reportType === 'staffing' ? '/api/reports/staffing' : '/api/reports';
+      const res = await fetch(`${apiPath}?${params}`);
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || 'Failed to load report data.');
         return;
       }
-      setReport(data as PayrollReport);
+      if (reportType === 'staffing') {
+        setStaffingReport(data as StaffingReport);
+      } else {
+        setReport(data as PayrollReport);
+      }
     } catch {
       setError('Failed to load report data. Please try again.');
     } finally {
@@ -100,6 +120,17 @@ export default function ReportsPage() {
   }
 
   function copyToClipboard() {
+    if (reportType === 'staffing' && staffingReport) {
+      const lines = ['Worker Name\tTotal Hours\tLogged By'];
+      for (const w of staffingReport.workers) {
+        lines.push(`${w.name}\t${w.totalHours}\t${w.loggedByName}`);
+      }
+      navigator.clipboard.writeText(lines.join('\n')).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+      return;
+    }
     if (!report) return;
     const lines = ['Employee Name\tHours Worked\tPTO\tSick Time\tTotal Hours'];
     for (const emp of report.employees) {
@@ -112,6 +143,36 @@ export default function ReportsPage() {
   }
 
   function exportCsv() {
+    if (reportType === 'staffing' && staffingReport) {
+      const workers = staffingReport.workers;
+      const days = workers[0]?.days ?? [];
+      const dayHeaders = days.flatMap(d => [formatDayLabel(d.date), formatDayLabel(d.date) + ' Hrs']);
+      const headerRow = ['Start Date', 'End Date', 'Worker', 'Total Hours', 'Logged By', ...dayHeaders].join(',');
+      const rows = [headerRow];
+      for (const w of workers) {
+        const dayCols = w.days.flatMap(d => [
+          escapeCsv(d.date),
+          escapeCsv(d.hours > 0 ? d.hours : ''),
+        ]);
+        rows.push([
+          escapeCsv(staffingReport.startDate),
+          escapeCsv(staffingReport.endDate),
+          escapeCsv(w.name),
+          escapeCsv(w.totalHours),
+          escapeCsv(w.loggedByName),
+          ...dayCols,
+        ].join(','));
+      }
+      const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `staffing-report-${staffingReport.startDate}-to-${staffingReport.endDate}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
     if (!report) return;
     const days = report.employees[0]?.days ?? [];
     const dayHeaders = days.flatMap(d => [formatDayLabel(d.date), formatDayLabel(d.date) + ' Hrs']);
@@ -143,25 +204,52 @@ export default function ReportsPage() {
   }
 
   const anyOpenShift = report?.employees.some(e => e.hasOpenShift) ?? false;
+  const staffingAnyOpenShift = staffingReport?.workers.some(w => w.hasOpenShift) ?? false;
+  const hasReport = reportType === 'staffing' ? staffingReport : report;
 
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-display font-black text-near-black">Reports</h1>
-        {report && (
-          <button
-            onClick={exportCsv}
-            className="bg-warm-brown text-off-white px-4 py-2 rounded-lg text-sm font-display font-bold
-                       hover:opacity-90 transition-opacity flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414A1 1 0 0119 9.414V19a2 2 0 01-2 2z" />
-            </svg>
-            Export CSV
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Report type toggle */}
+          <div className="flex bg-off-white rounded-lg border border-tan overflow-hidden">
+            <button
+              onClick={() => { setReportType('payroll'); setReport(null); setStaffingReport(null); }}
+              className={`px-3 py-1.5 text-xs font-display font-bold transition-colors ${
+                reportType === 'payroll'
+                  ? 'bg-warm-brown text-off-white'
+                  : 'text-sage hover:text-near-black'
+              }`}
+            >
+              Payroll
+            </button>
+            <button
+              onClick={() => { setReportType('staffing'); setReport(null); setStaffingReport(null); }}
+              className={`px-3 py-1.5 text-xs font-display font-bold transition-colors ${
+                reportType === 'staffing'
+                  ? 'bg-warm-brown text-off-white'
+                  : 'text-sage hover:text-near-black'
+              }`}
+            >
+              Staffing
+            </button>
+          </div>
+          {hasReport && (
+            <button
+              onClick={exportCsv}
+              className="bg-warm-brown text-off-white px-4 py-2 rounded-lg text-sm font-display font-bold
+                         hover:opacity-90 transition-opacity flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414A1 1 0 0119 9.414V19a2 2 0 01-2 2z" />
+              </svg>
+              Export CSV
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -223,7 +311,8 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {report && !loading && (
+      {/* ── Payroll Results ──────────────────────────────────────────────────── */}
+      {reportType === 'payroll' && report && !loading && (
         <>
           {/* Per-employee detail cards */}
           {report.employees.length === 0 ? (
@@ -343,7 +432,106 @@ export default function ReportsPage() {
         </>
       )}
 
-      {!report && !loading && (
+      {/* ── Staffing Results ──────────────────────────────────────────────────── */}
+      {reportType === 'staffing' && staffingReport && !loading && (
+        <>
+          {staffingReport.workers.length === 0 ? (
+            <div className="bg-white rounded-lg border border-tan shadow-card px-4 py-8 text-center">
+              <p className="text-sage font-body text-sm">No staffing shifts found for this period.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {staffingReport.workers.map(worker => (
+                <div key={worker.id} className="bg-white rounded-lg border border-tan shadow-card overflow-hidden">
+                  <div className="px-4 py-3 border-b border-tan/40">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-display font-bold text-near-black">{worker.name}</p>
+                        <p className="text-xs font-body text-sage">Logged by {worker.loggedByName}</p>
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <p className="text-xs font-body text-sage">Total Hours</p>
+                      <p className="font-mono font-bold text-near-black">
+                        {worker.totalHours}h{worker.hasOpenShift && <span className="text-warm-brown">*</span>}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="divide-y divide-tan/20">
+                    {worker.days.map(day => (
+                      <div key={day.date} className="flex items-center justify-between px-4 py-2">
+                        <span className="text-sm font-body text-near-black w-28">{formatDayLabel(day.date)}</span>
+                        {day.hours > 0 ? (
+                          <span className="font-mono text-sm text-near-black">
+                            {day.hours}h{day.hasOpenShift && <span className="text-warm-brown">*</span>}
+                          </span>
+                        ) : (
+                          <span className="font-mono text-sm text-sage">—</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Staffing Summary table */}
+          {staffingReport.workers.length > 0 && (
+            <div className="bg-white rounded-lg border border-tan shadow-card overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-tan/40">
+                <h2 className="font-display font-bold text-near-black">Summary</h2>
+                <button
+                  onClick={copyToClipboard}
+                  className="flex items-center gap-1.5 border border-sage text-sage px-3 py-1.5 rounded-lg
+                             text-xs font-display font-bold hover:text-near-black hover:border-near-black transition-colors"
+                >
+                  {copied ? (
+                    'Copied!'
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      Copy to clipboard
+                    </>
+                  )}
+                </button>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ backgroundColor: 'var(--color-near-black)' }}>
+                    {['Worker', 'Total Hours', 'Logged By'].map(h => (
+                      <th key={h} className="text-left px-4 py-3 font-display font-bold text-tan text-xs uppercase tracking-wide last:text-right">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {staffingReport.workers.map((worker, i) => (
+                    <tr key={worker.id} className={i % 2 === 0 ? 'bg-white' : 'bg-off-white'}>
+                      <td className="px-4 py-2.5 font-body text-near-black">{worker.name}</td>
+                      <td className="px-4 py-2.5 font-mono text-near-black">
+                        {worker.totalHours}h{worker.hasOpenShift && <span className="text-warm-brown">*</span>}
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-right text-near-black">{worker.loggedByName}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {staffingAnyOpenShift && (
+                <p className="px-4 py-2 text-xs font-body italic text-warm-brown border-t border-tan/40">
+                  * Hours marked with asterisk include open shifts and may be incomplete.
+                </p>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {!hasReport && !loading && (
         <div className="bg-white rounded-lg border border-tan shadow-card px-4 py-12 text-center">
           <p className="text-sage font-body text-sm">Set your filters and run a report.</p>
         </div>

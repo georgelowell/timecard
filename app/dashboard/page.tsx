@@ -12,13 +12,17 @@ async function getOverviewData(role: string) {
   const todayStr = today.toISOString();
 
   if (role === 'manager' || role === 'admin') {
-    const [activeSnap, pendingSnap, facilitiesSnap, usersSnap] = await Promise.all([
+    const [activeSnap, pendingSnap, staffingActiveSnap, facilitiesSnap, usersSnap] = await Promise.all([
       adminDb.collection('timecards')
         .where('status', 'in', ['checked-in', 'pending-approval'])
         .where('checkInTime', '>=', todayStr)
         .get(),
       adminDb.collection('timecards')
         .where('status', '==', 'pending-approval')
+        .get(),
+      adminDb.collection('timecards')
+        .where('isStaffingWorker', '==', true)
+        .where('status', '==', 'checked-in')
         .get(),
       adminDb.collection('facilities').where('active', '==', true).get(),
       adminDb.collection('users').where('active', '==', true).get(),
@@ -32,8 +36,19 @@ async function getOverviewData(role: string) {
       return {
         ...tc,
         id: d.id,
-        employeeName: users.get(tc.employeeId)?.name || 'Unknown',
+        employeeName: users.get(tc.employeeId)?.name || (tc as unknown as Record<string, unknown>).staffingWorkerName as string || 'Unknown',
         facilityName: facilities.get(tc.facilityId)?.name || 'Unknown',
+      };
+    });
+
+    const staffingActive = staffingActiveSnap.docs.map(d => {
+      const tc = d.data() as Timecard;
+      return {
+        ...tc,
+        id: d.id,
+        employeeName: (tc as unknown as Record<string, unknown>).staffingWorkerName as string || 'Unknown',
+        facilityName: facilities.get(tc.facilityId)?.name || 'Unknown',
+        employeeEmail: '',
       };
     });
 
@@ -53,7 +68,7 @@ async function getOverviewData(role: string) {
       return { id: d.id, name: data.name };
     });
 
-    return { activeTimecards, pending, facilities: facilitiesData };
+    return { activeTimecards, pending, staffingActive, facilities: facilitiesData };
   }
 
   return null;

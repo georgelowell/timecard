@@ -56,6 +56,11 @@ interface Summary {
   totalShifts: number;
   avgShiftLength: number;
   uniqueEmployees: number;
+  employeeHours?: number;
+  employeeShifts?: number;
+  staffingHours?: number;
+  staffingShifts?: number;
+  uniqueStaffingWorkers?: number;
 }
 interface FnRow    { name: string; totalHours: number; }
 interface CatRow   { name: string; totalHours: number; percentage: number; }
@@ -399,6 +404,30 @@ export default function AnalyticsPage() {
             <SummaryCard label="Avg Shift Length"    value={`${data.summary!.avgShiftLength}h`} />
             <SummaryCard label="Employees Worked"    value={`${data.summary!.uniqueEmployees}`} />
           </div>
+
+          {/* Staffing breakdown */}
+          {((data.summary?.staffingHours ?? 0) > 0 || (data.summary?.uniqueStaffingWorkers ?? 0) > 0) && (
+            <div className="bg-white rounded-lg border border-tan shadow-card p-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                <div>
+                  <p className="text-xs font-body text-sage uppercase tracking-wide">Employee Hours</p>
+                  <p className="font-mono font-bold text-near-black">{data.summary!.employeeHours ?? data.summary!.totalHours}h</p>
+                </div>
+                <div>
+                  <p className="text-xs font-body text-sage uppercase tracking-wide">Staffing Hours</p>
+                  <p className="font-mono font-bold text-warm-brown">{data.summary!.staffingHours ?? 0}h</p>
+                </div>
+                <div>
+                  <p className="text-xs font-body text-sage uppercase tracking-wide">Employee Shifts</p>
+                  <p className="font-mono font-bold text-near-black">{data.summary!.employeeShifts ?? data.summary!.totalShifts}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-body text-sage uppercase tracking-wide">Staffing Shifts</p>
+                  <p className="font-mono font-bold text-warm-brown">{data.summary!.staffingShifts ?? 0}</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Section 2 — Hours by Function */}
           {data.hoursByFunction && data.hoursByFunction.length > 0 && (

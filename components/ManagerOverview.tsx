@@ -13,6 +13,7 @@ interface Props {
   data: {
     activeTimecards: EnrichedTimecard[];
     pending: EnrichedTimecard[];
+    staffingActive: EnrichedTimecard[];
     facilities: { id: string; name: string }[];
   };
 }
@@ -36,6 +37,8 @@ export default function ManagerOverview({ data }: Props) {
   }
 
   const checkedIn = data.activeTimecards.filter(tc => tc.status === 'checked-in');
+  const staffingCheckedIn = (data.staffingActive || []).filter(tc => tc.status === 'checked-in');
+  const totalOnClock = checkedIn.length + staffingCheckedIn.length;
 
   return (
     <div className="space-y-6">
@@ -47,10 +50,13 @@ export default function ManagerOverview({ data }: Props) {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg border border-tan shadow-card p-4 text-center">
-          <p className="text-3xl font-display font-black text-warm-brown">{checkedIn.length}</p>
+          <p className="text-3xl font-display font-black text-warm-brown">{totalOnClock}</p>
           <p className="text-xs text-sage font-body mt-1 uppercase tracking-wide">On the clock</p>
+          {staffingCheckedIn.length > 0 && (
+            <p className="text-xs text-sage font-body mt-0.5">{checkedIn.length} emp · {staffingCheckedIn.length} staffing</p>
+          )}
         </div>
         <div className="bg-white rounded-lg border border-tan shadow-card p-4 text-center">
           <p className="text-3xl font-display font-black text-near-black">{pendingList.length}</p>
@@ -59,6 +65,10 @@ export default function ManagerOverview({ data }: Props) {
         <div className="bg-white rounded-lg border border-tan shadow-card p-4 text-center">
           <p className="text-3xl font-display font-black text-near-black">{data.facilities.length}</p>
           <p className="text-xs text-sage font-body mt-1 uppercase tracking-wide">Facilities</p>
+        </div>
+        <div className="bg-white rounded-lg border border-tan shadow-card p-4 text-center">
+          <p className="text-3xl font-display font-black text-near-black">{data.staffingActive?.length || 0}</p>
+          <p className="text-xs text-sage font-body mt-1 uppercase tracking-wide">Staffing Shifts</p>
         </div>
       </div>
 
@@ -100,7 +110,7 @@ export default function ManagerOverview({ data }: Props) {
         <div className="px-4 py-3 border-b border-tan/40">
           <h2 className="font-display font-bold text-near-black">On the clock</h2>
         </div>
-        {checkedIn.length === 0 ? (
+        {(checkedIn.length === 0 && staffingCheckedIn.length === 0) ? (
           <p className="px-4 py-6 text-sage text-center text-sm font-body">Nobody on the clock.</p>
         ) : (
           <div className="divide-y divide-tan/30">
@@ -115,6 +125,21 @@ export default function ManagerOverview({ data }: Props) {
                       {tc.remote && (
                         <span className="ml-2 text-xs px-1.5 py-0.5 bg-tan/30 text-warm-brown rounded font-display font-bold">Remote</span>
                       )}
+                    </p>
+                  </div>
+                  <span className="text-sm font-display font-bold text-warm-brown font-mono">{elapsed.toFixed(1)}h</span>
+                </div>
+              );
+            })}
+            {staffingCheckedIn.map(tc => {
+              const elapsed = (Date.now() - new Date(tc.checkInTime).getTime()) / (1000 * 60 * 60);
+              return (
+                <div key={tc.id} className="px-4 py-3 flex items-center justify-between bg-tan/5">
+                  <div>
+                    <p className="font-display font-bold text-near-black text-sm">{tc.employeeName}</p>
+                    <p className="text-xs text-sage font-body mt-0.5">
+                      {tc.facilityName} · since {new Date(tc.checkInTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      <span className="ml-2 text-xs px-1.5 py-0.5 bg-sage/20 text-sage rounded font-display font-bold">Staffing</span>
                     </p>
                   </div>
                   <span className="text-sm font-display font-bold text-warm-brown font-mono">{elapsed.toFixed(1)}h</span>

@@ -13,7 +13,7 @@ export default withAuth(
       }
     }
 
-    if (pathname.startsWith('/dashboard/timecards') || pathname.startsWith('/dashboard/reports') || pathname.startsWith('/dashboard/taxonomy') || pathname.startsWith('/dashboard/leave')) {
+    if (pathname.startsWith('/dashboard/timecards') || pathname.startsWith('/dashboard/reports') || pathname.startsWith('/dashboard/taxonomy') || pathname.startsWith('/dashboard/leave') || pathname.startsWith('/dashboard/staffing')) {
       if (token?.role !== 'manager' && token?.role !== 'admin') {
         return NextResponse.redirect(new URL('/dashboard', req.url));
       }
